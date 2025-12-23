@@ -108,6 +108,7 @@ function toggleCompendium(filename, enabled) {
 }
 
 // Get recent chat context for scanning
+// Returns array of messages (newest last) instead of joined string
 function getRecentContext(messageCount = 5) {
     try {
         console.log('[Skill Check] getRecentContext called, messageCount:', messageCount);
@@ -119,49 +120,74 @@ function getRecentContext(messageCount = 5) {
         if (context && context.chat && context.chat.length > 0) {
             console.log('[Skill Check] Chat messages count:', context.chat.length);
             const recent = context.chat.slice(-messageCount);
-            const recentText = recent.map(m => m.mes || '').join(' ');
-            console.log('[Skill Check] Recent context (first 200 chars):', recentText.substring(0, 200));
-            return recentText;
+            // Log for debugging
+            const recentText = recent.map((m, i) => {
+                const label = m.is_user ? '[User]' : '[AI]';
+                return `${label} ${m.mes || ''}`;
+            }).join('\n');
+            console.log('[Skill Check] Recent context:\n', recentText.substring(0, 500));
+            // Return array of messages (for recency weighting)
+            return recent;
         } else {
             console.warn('[Skill Check] No chat context available or chat is empty');
         }
     } catch (e) {
         console.warn('[Skill Check] Could not access chat context:', e);
     }
-    return '';
+    return [];
 }
 
-// Scan text for challenge keywords
-function scanForChallenges(text) {
-    console.log('[Skill Check] scanForChallenges called with text:', text.substring(0, 200));
+// Scan messages for challenge keywords with recency weighting
+// messages: array of message objects (oldest first, newest last)
+function scanForChallenges(messages) {
+    if (!Array.isArray(messages)) {
+        console.warn('[Skill Check] scanForChallenges received non-array:', typeof messages);
+        return [];
+    }
+
+    console.log('[Skill Check] scanForChallenges called with', messages.length, 'messages');
     console.log('[Skill Check] Loaded compendiums count:', loadedCompendiums.length);
 
-    const lowerText = text.toLowerCase();
     const matches = [];
 
-    for (const compendium of loadedCompendiums) {
-        console.log(`[Skill Check] Checking compendium: ${compendium.name}, enabled: ${compendium._enabled}`);
-        if (!compendium._enabled) continue;
+    // Scan each message (reverse order so newest is checked first)
+    for (let msgIndex = messages.length - 1; msgIndex >= 0; msgIndex--) {
+        const message = messages[msgIndex];
+        const lowerText = (message.mes || '').toLowerCase();
+        const recencyBonus = (messages.length - msgIndex) * 100; // Newer = higher bonus
 
-        for (const entry of compendium.entries) {
-            for (const keyword of entry.keywords) {
-                if (lowerText.includes(keyword.toLowerCase())) {
-                    console.log(`[Skill Check] ✓ Matched keyword "${keyword}" in entry "${entry.name}"`);
-                    matches.push({
-                        entry: entry,
-                        keyword: keyword,
-                        compendium: compendium.name,
-                        priority: keyword.length // Longer matches = more specific
-                    });
-                    break; // One match per entry is enough
+        console.log(`[Skill Check] Scanning message ${msgIndex}:`, lowerText.substring(0, 100));
+
+        for (const compendium of loadedCompendiums) {
+            if (!compendium._enabled) continue;
+
+            for (const entry of compendium.entries) {
+                // Skip if we already matched this entry in a newer message
+                if (matches.find(m => m.entry.id === entry.id)) continue;
+
+                for (const keyword of entry.keywords) {
+                    if (lowerText.includes(keyword.toLowerCase())) {
+                        console.log(`[Skill Check] ✓ Matched keyword "${keyword}" in entry "${entry.name}" (message ${msgIndex}, recency bonus: ${recencyBonus})`);
+                        matches.push({
+                            entry: entry,
+                            keyword: keyword,
+                            compendium: compendium.name,
+                            messageIndex: msgIndex,
+                            priority: keyword.length + recencyBonus // Longer keyword + recency
+                        });
+                        break; // One match per entry is enough
+                    }
                 }
             }
         }
     }
 
-    // Sort by priority — prefer specific matches over generic
+    // Sort by priority — prefer newer and more specific matches
     matches.sort((a, b) => b.priority - a.priority);
     console.log(`[Skill Check] scanForChallenges found ${matches.length} matches`);
+    if (matches.length > 0) {
+        console.log('[Skill Check] Top match:', matches[0].keyword, 'from message', matches[0].messageIndex, 'priority:', matches[0].priority);
+    }
     return matches;
 }
 
@@ -210,8 +236,8 @@ function getActiveDifficulty(statDisplayName) {
 
     // Auto-detect from context
     console.log('[Skill Check] Auto-detecting challenge from context...');
-    const context = getRecentContext(settings.contextMessages || 5);
-    const matches = scanForChallenges(context);
+    const recentMessages = getRecentContext(settings.contextMessages || 5);
+    const matches = scanForChallenges(recentMessages);
 
     if (matches.length > 0) {
         console.log('[Skill Check] Found', matches.length, 'matches');
@@ -246,8 +272,8 @@ function getActiveDifficulty(statDisplayName) {
 // Get all current challenge matches for display
 function getCurrentChallengeMatches() {
     const settings = extension_settings[extensionName];
-    const context = getRecentContext(settings.contextMessages || 5);
-    return scanForChallenges(context);
+    const recentMessages = getRecentContext(settings.contextMessages || 5);
+    return scanForChallenges(recentMessages);
 }
 
 // Get display text for current detected challenge
