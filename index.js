@@ -13,13 +13,14 @@ const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 // Default settings
 const defaultSettings = {
     enabled: true,
+    useDndStyle: false, // false = flat bonuses (stat IS the modifier), true = DND style (modifier = (stat-10)/2)
     stats: {
-        stat1: 10,
-        stat2: 10,
-        stat3: 10,
-        stat4: 10,
-        stat5: 10,
-        stat6: 10
+        stat1: 0,
+        stat2: 0,
+        stat3: 0,
+        stat4: 0,
+        stat5: 0,
+        stat6: 0
     },
     statNames: {
         stat1: 'STR',
@@ -32,7 +33,9 @@ const defaultSettings = {
     difficulty: 12,
     useCompendium: true,
     contextMessages: 5,
-    manualChallenge: null // null = auto-detect, or entry id for manual override
+    manualChallenge: null, // null = auto-detect, or entry id for manual override
+    level: 1,
+    pendingLevelUps: 0
 };
 
 // Stats array for iteration (internal keys)
@@ -279,9 +282,155 @@ function getAllChallengeOptions(selectedId) {
     return options;
 }
 
-// Calculate D&D-style modifier
+// Level-up keywords to detect
+const levelUpKeywords = [
+    'level up',
+    'leveled up',
+    'levelled up',
+    'gained a level',
+    'gain a level',
+    'reached level',
+    'now level',
+    'advanced to level',
+    'you are now level',
+    'congratulations.*level',
+    'new level'
+];
+
+// Track last checked message to avoid duplicate detections
+let lastCheckedMessageId = null;
+
+// Check if text contains level-up indication
+function detectLevelUp(text) {
+    const lowerText = text.toLowerCase();
+    for (const keyword of levelUpKeywords) {
+        // Support simple regex patterns
+        if (keyword.includes('.*')) {
+            const regex = new RegExp(keyword, 'i');
+            if (regex.test(text)) return true;
+        } else {
+            if (lowerText.includes(keyword)) return true;
+        }
+    }
+    return false;
+}
+
+// Show level-up notification
+function showLevelUpToast() {
+    // Remove existing level-up toast if any
+    $('.skill-check-levelup-toast').remove();
+
+    const toast = $(`
+        <div class="skill-check-levelup-toast">
+            <div class="levelup-title">Level Up!</div>
+            <div class="levelup-subtitle">Click to spend your stat point</div>
+        </div>
+    `);
+
+    toast.on('click', function() {
+        toast.remove();
+        openCharacterSheet();
+    });
+
+    $('body').append(toast);
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+        toast.fadeOut(300, () => toast.remove());
+    }, 10000);
+}
+
+// Process level up - increment level and add pending point
+function processLevelUp() {
+    const settings = extension_settings[extensionName];
+    settings.level += 1;
+    settings.pendingLevelUps += 1;
+    saveSettingsDebounced();
+
+    console.log(`[Skill Check] Level up! Now level ${settings.level}, ${settings.pendingLevelUps} pending point(s)`);
+    showLevelUpToast();
+}
+
+// Check the most recent AI message for level-up
+function checkForLevelUp() {
+    try {
+        const context = typeof getContext === 'function' ? getContext() : null;
+        if (!context || !context.chat || context.chat.length === 0) return;
+
+        // Get the most recent AI message
+        const recentMessages = context.chat.slice(-3);
+        for (let i = recentMessages.length - 1; i >= 0; i--) {
+            const msg = recentMessages[i];
+            // Skip user messages
+            if (msg.is_user) continue;
+
+            // Check if we already processed this message
+            const msgId = `${context.chat.length}-${i}-${msg.mes?.substring(0, 50)}`;
+            if (msgId === lastCheckedMessageId) return;
+
+            // Check for level-up
+            if (msg.mes && detectLevelUp(msg.mes)) {
+                lastCheckedMessageId = msgId;
+                processLevelUp();
+                return;
+            }
+
+            // Only check the most recent AI message
+            lastCheckedMessageId = msgId;
+            return;
+        }
+    } catch (e) {
+        console.warn('[Skill Check] Error checking for level-up:', e);
+    }
+}
+
+// Set up level-up detection using MutationObserver
+function setupLevelUpDetection() {
+    // Try to hook into SillyTavern events if available
+    if (typeof eventSource !== 'undefined') {
+        try {
+            eventSource.on('message_received', () => {
+                setTimeout(checkForLevelUp, 500); // Small delay to ensure message is in context
+            });
+            console.log('[Skill Check] Level-up detection hooked into message events');
+            return;
+        } catch (e) {
+            console.warn('[Skill Check] Could not hook into message events:', e);
+        }
+    }
+
+    // Fallback: Use MutationObserver to watch for new messages
+    const chatContainer = document.getElementById('chat');
+    if (chatContainer) {
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    // New content added, check for level-up after a delay
+                    setTimeout(checkForLevelUp, 500);
+                    break;
+                }
+            }
+        });
+
+        observer.observe(chatContainer, { childList: true, subtree: true });
+        console.log('[Skill Check] Level-up detection using MutationObserver');
+    } else {
+        // Last resort: periodic check
+        setInterval(checkForLevelUp, 3000);
+        console.log('[Skill Check] Level-up detection using periodic check');
+    }
+}
+
+// Calculate modifier based on stat style setting
 function getModifier(stat) {
-    return Math.floor((stat - 10) / 2);
+    const settings = extension_settings[extensionName];
+    if (settings.useDndStyle) {
+        // DND style: modifier = (stat - 10) / 2
+        return Math.floor((stat - 10) / 2);
+    } else {
+        // Flat bonus: stat IS the modifier
+        return stat;
+    }
 }
 
 // Roll 1d20
@@ -559,7 +708,15 @@ function openCharacterSheet() {
 
                     <div class="skill-check-popup-section">
                         <h4>Stats</h4>
-                        <small>Click stat names to rename them</small>
+                        <div class="skill-check-level-row">
+                            <span>Level ${settings.level}</span>
+                            ${settings.pendingLevelUps > 0 ? `<span class="skill-check-pending-levels">(${settings.pendingLevelUps} point${settings.pendingLevelUps > 1 ? 's' : ''} to spend!)</span>` : ''}
+                        </div>
+                        <label class="checkbox_label skill-check-toggle">
+                            <input id="skill-check-dnd-style" type="checkbox" ${settings.useDndStyle ? 'checked' : ''} />
+                            <span>Use D&D style stats (10 = +0)</span>
+                        </label>
+                        <small>${settings.useDndStyle ? 'Modifier = (stat - 10) / 2' : 'Stat value IS your bonus'}</small>
                         <div class="skill-check-popup-stats">
                             ${statKeys.map(statKey => {
                                 const statName = settings.statNames[statKey];
@@ -578,11 +735,12 @@ function openCharacterSheet() {
                                         <input
                                             type="number"
                                             class="skill-check-stat-value-input text_pole"
-                                            min="1"
+                                            min="${settings.useDndStyle ? '1' : '-10'}"
                                             max="30"
                                             value="${statValue}"
                                         />
-                                        <span class="skill-check-stat-modifier">(${modStr})</span>
+                                        <span class="skill-check-stat-modifier ${settings.useDndStyle ? '' : 'hidden'}">(${modStr})</span>
+                                        <button class="skill-check-stat-increment menu_button ${settings.pendingLevelUps > 0 ? '' : 'hidden'}" title="Spend 1 point">+1</button>
                                     </div>
                                 `;
                             }).join('')}
@@ -685,11 +843,21 @@ function openCharacterSheet() {
         loadSettingsUI();
     });
 
+    // DND style toggle handler
+    popup.find('#skill-check-dnd-style').on('change', function() {
+        settings.useDndStyle = $(this).prop('checked');
+        saveSettingsDebounced();
+        // Reopen popup to refresh the UI
+        popup.remove();
+        openCharacterSheet();
+    });
+
     // Stat value input handler
     popup.find('.skill-check-stat-value-input').on('change', function() {
         const statKey = $(this).closest('.skill-check-popup-stat-row').data('stat');
-        const value = parseInt($(this).val()) || 10;
-        const clampedValue = Math.max(1, Math.min(30, value));
+        const value = parseInt($(this).val()) || 0;
+        const minVal = settings.useDndStyle ? 1 : -10;
+        const clampedValue = Math.max(minVal, Math.min(30, value));
         settings.stats[statKey] = clampedValue;
         $(this).val(clampedValue);
 
@@ -700,6 +868,20 @@ function openCharacterSheet() {
 
         saveSettingsDebounced();
         loadSettingsUI();
+    });
+
+    // Stat increment button handler (for spending level-up points)
+    popup.find('.skill-check-stat-increment').on('click', function() {
+        if (settings.pendingLevelUps <= 0) return;
+
+        const statKey = $(this).closest('.skill-check-popup-stat-row').data('stat');
+        settings.stats[statKey] += 1;
+        settings.pendingLevelUps -= 1;
+        saveSettingsDebounced();
+
+        // Reopen popup to refresh the UI
+        popup.remove();
+        openCharacterSheet();
     });
 
     // Reset to defaults handler
@@ -899,6 +1081,9 @@ jQuery(async () => {
 
         // Set initial visibility
         toggleExtension();
+
+        // Set up level-up detection
+        setupLevelUpDetection();
 
         console.log('[Skill Check] ✓ Extension loaded successfully');
         console.log('[Skill Check] ========================================');

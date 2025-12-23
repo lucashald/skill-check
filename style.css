@@ -408,6 +408,75 @@
     margin-bottom: 10px;
 }
 
+/* Level display */
+.skill-check-level-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.skill-check-pending-levels {
+    color: #ffd43b;
+    font-weight: 600;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Stat increment button */
+.skill-check-stat-increment {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: auto;
+}
+
+.skill-check-stat-increment.hidden {
+    display: none;
+}
+
+.skill-check-stat-modifier.hidden {
+    display: none;
+}
+
+/* Level up toast */
+.skill-check-levelup-toast {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    background-color: rgba(40, 50, 30, 0.95);
+    border: 1px solid rgba(150, 200, 100, 0.5);
+    color: #e0e0e0;
+    padding: 14px 18px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    min-width: 220px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.skill-check-levelup-toast:hover {
+    background-color: rgba(50, 65, 35, 0.98);
+    transform: translateY(-2px);
+}
+
+.skill-check-levelup-toast .levelup-title {
+    color: #ffd43b;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.skill-check-levelup-toast .levelup-subtitle {
+    color: #aaa;
+    font-size: 12px;
+}
+
 .skill-check-challenge-info {
     margin: 10px 0;
     padding: 10px;
