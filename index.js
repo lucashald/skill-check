@@ -14,18 +14,32 @@ const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const defaultSettings = {
     enabled: true,
     stats: {
-        STR: 10,
-        DEX: 10,
-        CON: 10,
-        INT: 10,
-        WIS: 10,
-        CHA: 10
+        stat1: 10,
+        stat2: 10,
+        stat3: 10,
+        stat4: 10,
+        stat5: 10,
+        stat6: 10
+    },
+    statNames: {
+        stat1: 'STR',
+        stat2: 'DEX',
+        stat3: 'CON',
+        stat4: 'INT',
+        stat5: 'WIS',
+        stat6: 'CHA'
     },
     difficulty: 12
 };
 
-// Stats array for iteration
-const statNames = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+// Stats array for iteration (internal keys)
+const statKeys = ['stat1', 'stat2', 'stat3', 'stat4', 'stat5', 'stat6'];
+
+// Get display name for a stat
+function getStatName(statKey) {
+    const settings = extension_settings[extensionName];
+    return settings?.statNames?.[statKey] || statKey.toUpperCase();
+}
 
 // Calculate D&D-style modifier
 function getModifier(stat) {
@@ -43,7 +57,7 @@ function determineOutcome(naturalRoll, total, difficulty) {
     if (naturalRoll === 1 || total <= 5) {
         return {
             tier: 'critical_failure',
-            text: 'FAILED BADLY. Narrate a serious setback, complication, or injury. Do not soften the failure.'
+            text: 'FAILED BADLY. Narrate a serious setback, complication, or injury. Do not soften the failure. Do not speak for the user.'
         };
     }
 
@@ -51,7 +65,7 @@ function determineOutcome(naturalRoll, total, difficulty) {
     if (total >= 18 || naturalRoll === 20) {
         return {
             tier: 'strong_success',
-            text: 'SUCCEEDED EXCEPTIONALLY. Narrate an impressive, skillful, or lucky outcome.'
+            text: 'SUCCEEDED EXCEPTIONALLY. Narrate an impressive, skillful, or lucky outcome. Do not speak for the user.'
         };
     }
 
@@ -59,14 +73,14 @@ function determineOutcome(naturalRoll, total, difficulty) {
     if (total >= difficulty) {
         return {
             tier: 'success',
-            text: 'SUCCEEDED. Narrate the user achieving their goal.'
+            text: 'SUCCEEDED. Narrate the user achieving their goal. Do not speak for the user.'
         };
     }
 
     // Failure: total < difficulty (but not critical)
     return {
         tier: 'failure',
-        text: 'FAILED. Narrate the user not achieving their goal. There may be minor consequences.'
+        text: 'FAILED. Narrate the user not achieving their goal. There may be minor consequences. Do not speak for the user.'
     };
 }
 
@@ -93,8 +107,9 @@ function showRollResult(stat, naturalRoll, modifier, total, outcome) {
 }
 
 // Perform skill check and send message
-async function performSkillCheck(stat) {
+async function performSkillCheck(statKey) {
     const settings = extension_settings[extensionName];
+    const statDisplayName = getStatName(statKey);
 
     // Get the message textarea
     const textarea = document.getElementById('send_textarea');
@@ -105,14 +120,8 @@ async function performSkillCheck(stat) {
 
     const userMessage = textarea.value.trim();
 
-    // Don't send if message is empty
-    if (!userMessage) {
-        showWarning('Please type a message before making a skill check.');
-        return;
-    }
-
     // Get stat value and calculate modifier
-    const statValue = settings.stats[stat];
+    const statValue = settings.stats[statKey];
     const modifier = getModifier(statValue);
 
     // Roll the dice
@@ -123,11 +132,11 @@ async function performSkillCheck(stat) {
     const outcome = determineOutcome(naturalRoll, total, settings.difficulty);
 
     // Show result to user
-    showRollResult(stat, naturalRoll, modifier, total, outcome);
+    showRollResult(statDisplayName, naturalRoll, modifier, total, outcome);
 
-    // Append injection to message
-    const injection = `\n\n[System: The user attempted an action using ${stat}. They ${outcome.text}]`;
-    textarea.value = userMessage + injection;
+    // Build the message - injection only if no user message
+    const injection = `[System: The user attempted an action using ${statDisplayName}. They ${outcome.text}]`;
+    textarea.value = userMessage ? `${userMessage}\n\n${injection}` : injection;
 
     // Trigger send button click
     const sendButton = document.getElementById('send_but');
@@ -163,19 +172,27 @@ function createStatButtons() {
         <div id="skill-check-buttons" class="skill-check-container">
             <div class="skill-check-label">Skill Check:</div>
             <div class="skill-check-stats">
-                ${statNames.map(stat => `
-                    <button class="skill-check-btn" data-stat="${stat}" title="Roll ${stat} check">
-                        ${stat}
+                ${statKeys.map(statKey => `
+                    <button class="skill-check-btn" data-stat="${statKey}" title="Roll ${getStatName(statKey)} check">
+                        ${getStatName(statKey)}
                     </button>
                 `).join('')}
             </div>
+            <button id="skill-check-sheet-btn" class="skill-check-sheet-btn" title="Edit Character Sheet">
+                <i class="fa-solid fa-scroll"></i>
+            </button>
         </div>
     `);
 
-    // Add click handlers
+    // Add click handlers for stat buttons
     container.find('.skill-check-btn').on('click', function() {
-        const stat = $(this).data('stat');
-        performSkillCheck(stat);
+        const statKey = $(this).data('stat');
+        performSkillCheck(statKey);
+    });
+
+    // Add click handler for character sheet button
+    container.find('#skill-check-sheet-btn').on('click', function() {
+        openCharacterSheet();
     });
 
     // Try multiple injection points with fallbacks
@@ -226,6 +243,187 @@ function createStatButtons() {
     }
 }
 
+// Update stat button labels (called when names change)
+function updateStatButtonLabels() {
+    statKeys.forEach(statKey => {
+        const btn = $(`.skill-check-btn[data-stat="${statKey}"]`);
+        const displayName = getStatName(statKey);
+        btn.text(displayName);
+        btn.attr('title', `Roll ${displayName} check`);
+    });
+}
+
+// Open character sheet popup
+function openCharacterSheet() {
+    // Remove existing popup if any
+    $('#skill-check-sheet-popup').remove();
+
+    const settings = extension_settings[extensionName];
+
+    const popup = $(`
+        <div id="skill-check-sheet-popup" class="skill-check-popup-overlay">
+            <div class="skill-check-popup">
+                <div class="skill-check-popup-header">
+                    <h3>Character Sheet</h3>
+                    <button class="skill-check-popup-close" title="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="skill-check-popup-content">
+                    <div class="skill-check-popup-section">
+                        <h4>Difficulty Class (DC)</h4>
+                        <div class="skill-check-difficulty-row">
+                            <input
+                                id="skill-check-popup-difficulty"
+                                type="number"
+                                min="1"
+                                max="30"
+                                value="${settings.difficulty}"
+                                class="text_pole"
+                            />
+                            <select id="skill-check-difficulty-preset" class="text_pole">
+                                <option value="">Presets...</option>
+                                <option value="5">Very Easy (5)</option>
+                                <option value="10">Easy (10)</option>
+                                <option value="12">Medium (12)</option>
+                                <option value="15">Hard (15)</option>
+                                <option value="20">Very Hard (20)</option>
+                                <option value="25">Nearly Impossible (25)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="skill-check-popup-section">
+                        <h4>Stats</h4>
+                        <small>Click stat names to rename them</small>
+                        <div class="skill-check-popup-stats">
+                            ${statKeys.map(statKey => {
+                                const statName = settings.statNames[statKey];
+                                const statValue = settings.stats[statKey];
+                                const modifier = getModifier(statValue);
+                                const modStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+                                return `
+                                    <div class="skill-check-popup-stat-row" data-stat="${statKey}">
+                                        <input
+                                            type="text"
+                                            class="skill-check-stat-name-input text_pole"
+                                            value="${statName}"
+                                            maxlength="6"
+                                            title="Click to edit stat name"
+                                        />
+                                        <input
+                                            type="number"
+                                            class="skill-check-stat-value-input text_pole"
+                                            min="1"
+                                            max="30"
+                                            value="${statValue}"
+                                        />
+                                        <span class="skill-check-stat-modifier">(${modStr})</span>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <div class="skill-check-popup-section">
+                        <button id="skill-check-reset-defaults" class="menu_button">
+                            <i class="fa-solid fa-rotate-left"></i> Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+
+    // Add to body
+    $('body').append(popup);
+
+    // Close button handler
+    popup.find('.skill-check-popup-close').on('click', function() {
+        popup.remove();
+    });
+
+    // Click outside to close
+    popup.on('click', function(e) {
+        if (e.target === popup[0]) {
+            popup.remove();
+        }
+    });
+
+    // Escape key to close
+    $(document).on('keydown.skillCheckPopup', function(e) {
+        if (e.key === 'Escape') {
+            popup.remove();
+            $(document).off('keydown.skillCheckPopup');
+        }
+    });
+
+    // Difficulty input handler
+    popup.find('#skill-check-popup-difficulty').on('change', function() {
+        const value = parseInt($(this).val()) || 12;
+        settings.difficulty = Math.max(1, Math.min(30, value));
+        $(this).val(settings.difficulty);
+        saveSettingsDebounced();
+        loadSettingsUI();
+    });
+
+    // Difficulty preset handler
+    popup.find('#skill-check-difficulty-preset').on('change', function() {
+        const value = parseInt($(this).val());
+        if (value) {
+            settings.difficulty = value;
+            popup.find('#skill-check-popup-difficulty').val(value);
+            saveSettingsDebounced();
+            loadSettingsUI();
+        }
+        $(this).val(''); // Reset dropdown
+    });
+
+    // Stat name input handler
+    popup.find('.skill-check-stat-name-input').on('change', function() {
+        const statKey = $(this).closest('.skill-check-popup-stat-row').data('stat');
+        let value = $(this).val().trim().toUpperCase();
+        if (!value) value = statKey.toUpperCase();
+        if (value.length > 6) value = value.substring(0, 6);
+        settings.statNames[statKey] = value;
+        $(this).val(value);
+        saveSettingsDebounced();
+        updateStatButtonLabels();
+        loadSettingsUI();
+    });
+
+    // Stat value input handler
+    popup.find('.skill-check-stat-value-input').on('change', function() {
+        const statKey = $(this).closest('.skill-check-popup-stat-row').data('stat');
+        const value = parseInt($(this).val()) || 10;
+        const clampedValue = Math.max(1, Math.min(30, value));
+        settings.stats[statKey] = clampedValue;
+        $(this).val(clampedValue);
+
+        // Update modifier display
+        const modifier = getModifier(clampedValue);
+        const modStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+        $(this).siblings('.skill-check-stat-modifier').text(`(${modStr})`);
+
+        saveSettingsDebounced();
+        loadSettingsUI();
+    });
+
+    // Reset to defaults handler
+    popup.find('#skill-check-reset-defaults').on('click', function() {
+        if (confirm('Reset all stats and difficulty to default values?')) {
+            settings.stats = { ...defaultSettings.stats };
+            settings.statNames = { ...defaultSettings.statNames };
+            settings.difficulty = defaultSettings.difficulty;
+            saveSettingsDebounced();
+            updateStatButtonLabels();
+            loadSettingsUI();
+            popup.remove();
+            openCharacterSheet(); // Reopen with fresh values
+        }
+    });
+}
+
 // Create settings panel
 function createSettingsPanel() {
     console.log('[Skill Check] Creating settings panel...');
@@ -250,16 +448,16 @@ function createSettingsPanel() {
                         <small>Set your character's ability scores (1-30). Default: 10</small>
 
                         <div class="skill-check-stats-grid">
-                            ${statNames.map(stat => `
+                            ${statKeys.map(statKey => `
                                 <div class="skill-check-stat-input">
-                                    <label for="skill-check-stat-${stat}">${stat}</label>
+                                    <label for="skill-check-stat-${statKey}" class="skill-check-stat-label" data-stat="${statKey}"></label>
                                     <input
-                                        id="skill-check-stat-${stat}"
+                                        id="skill-check-stat-${statKey}"
                                         type="number"
                                         min="1"
                                         max="30"
                                         class="text_pole"
-                                        data-stat="${stat}"
+                                        data-stat="${statKey}"
                                     />
                                 </div>
                             `).join('')}
@@ -323,10 +521,10 @@ function createSettingsPanel() {
         toggleExtension();
     });
 
-    $('.skill-check-stat-input input').on('change', function() {
-        const stat = $(this).data('stat');
+    $('.skill-check-stat-input input[type="number"]').on('change', function() {
+        const statKey = $(this).data('stat');
         const value = parseInt($(this).val()) || 10;
-        extension_settings[extensionName].stats[stat] = Math.max(1, Math.min(30, value));
+        extension_settings[extensionName].stats[statKey] = Math.max(1, Math.min(30, value));
         saveSettingsDebounced();
     });
 
@@ -343,8 +541,9 @@ function loadSettingsUI() {
 
     $('#skill-check-enabled').prop('checked', settings.enabled);
 
-    statNames.forEach(stat => {
-        $(`#skill-check-stat-${stat}`).val(settings.stats[stat]);
+    statKeys.forEach(statKey => {
+        $(`#skill-check-stat-${statKey}`).val(settings.stats[statKey]);
+        $(`.skill-check-stat-label[data-stat="${statKey}"]`).text(getStatName(statKey));
     });
 
     $('#skill-check-difficulty').val(settings.difficulty);
@@ -371,7 +570,7 @@ jQuery(async () => {
         // Initialize settings
         if (!extension_settings[extensionName]) {
             console.log('[Skill Check] Creating new settings with defaults');
-            extension_settings[extensionName] = defaultSettings;
+            extension_settings[extensionName] = JSON.parse(JSON.stringify(defaultSettings));
         } else {
             console.log('[Skill Check] Merging existing settings with defaults');
             // Merge with defaults to ensure all properties exist
@@ -386,6 +585,13 @@ jQuery(async () => {
                 {},
                 defaultSettings.stats,
                 extension_settings[extensionName].stats
+            );
+
+            // Ensure all stat names exist
+            extension_settings[extensionName].statNames = Object.assign(
+                {},
+                defaultSettings.statNames,
+                extension_settings[extensionName].statNames
             );
         }
 

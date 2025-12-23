@@ -207,6 +207,177 @@
     color: #e0e0e0;
 }
 
+/* Character sheet button */
+.skill-check-sheet-btn {
+    background-color: rgba(100, 80, 60, 0.6);
+    color: #e0e0e0;
+    border: 1px solid rgba(140, 120, 100, 0.4);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.skill-check-sheet-btn:hover {
+    background-color: rgba(130, 100, 70, 0.8);
+    border-color: rgba(180, 150, 120, 0.6);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.skill-check-sheet-btn:active {
+    transform: translateY(0);
+}
+
+/* Character sheet popup overlay */
+.skill-check-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* Character sheet popup */
+.skill-check-popup {
+    background-color: rgba(35, 35, 45, 0.98);
+    border: 1px solid rgba(100, 100, 120, 0.5);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    max-width: 400px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.skill-check-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 10px 10px 0 0;
+}
+
+.skill-check-popup-header h3 {
+    margin: 0;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.skill-check-popup-close {
+    background: none;
+    border: none;
+    color: #aaa;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px 8px;
+    transition: color 0.2s ease;
+}
+
+.skill-check-popup-close:hover {
+    color: #fff;
+}
+
+.skill-check-popup-content {
+    padding: 18px;
+}
+
+.skill-check-popup-section {
+    margin-bottom: 18px;
+}
+
+.skill-check-popup-section:last-child {
+    margin-bottom: 0;
+}
+
+.skill-check-popup-section h4 {
+    margin: 0 0 10px 0;
+    color: #e0e0e0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.skill-check-popup-section small {
+    color: #888;
+    font-size: 11px;
+    display: block;
+    margin-bottom: 10px;
+}
+
+/* Difficulty row with input and dropdown */
+.skill-check-difficulty-row {
+    display: flex;
+    gap: 10px;
+}
+
+.skill-check-difficulty-row input {
+    width: 70px;
+    padding: 6px 8px;
+    font-size: 14px;
+}
+
+.skill-check-difficulty-row select {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+/* Stats in popup */
+.skill-check-popup-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skill-check-popup-stat-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.skill-check-stat-name-input {
+    width: 70px;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.skill-check-stat-value-input {
+    width: 60px;
+    padding: 6px 8px;
+    font-size: 14px;
+    text-align: center;
+}
+
+.skill-check-stat-modifier {
+    color: #aaa;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 40px;
+}
+
+/* Reset button */
+#skill-check-reset-defaults {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .skill-check-container {
@@ -224,5 +395,10 @@
         right: 10px;
         left: 10px;
         min-width: auto;
+    }
+
+    .skill-check-popup {
+        max-width: none;
+        margin: 10px;
     }
 }
