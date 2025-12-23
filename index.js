@@ -1,4 +1,5 @@
 import { extension_settings } from "../../../extensions.js";
+import { getContext } from "../../../extensions.js";
 
 // Try to get saveSettingsDebounced from window or create a fallback
 const saveSettingsDebounced = window.saveSettingsDebounced || function() {
@@ -110,9 +111,9 @@ function toggleCompendium(filename, enabled) {
 function getRecentContext(messageCount = 5) {
     try {
         console.log('[Skill Check] getRecentContext called, messageCount:', messageCount);
-        // Try to access SillyTavern's chat context
-        const context = typeof getContext === 'function' ? getContext() : null;
-        console.log('[Skill Check] getContext available:', typeof getContext === 'function');
+        // Access SillyTavern's chat context
+        const context = getContext();
+        console.log('[Skill Check] getContext imported:', typeof getContext);
         console.log('[Skill Check] context exists:', !!context);
 
         if (context && context.chat && context.chat.length > 0) {
@@ -477,9 +478,9 @@ function checkForLevelUp() {
     try {
         console.log('[Skill Check] ===== checkForLevelUp called =====');
         const settings = extension_settings[extensionName];
-        const context = typeof getContext === 'function' ? getContext() : null;
+        const context = getContext();
 
-        console.log('[Skill Check] getContext available:', typeof getContext === 'function');
+        console.log('[Skill Check] getContext imported:', typeof getContext);
         console.log('[Skill Check] context exists:', !!context);
 
         if (!context || !context.chat || context.chat.length === 0) {
