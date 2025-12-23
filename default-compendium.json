@@ -1,0 +1,131 @@
+{
+  "name": "Default Compendium",
+  "version": "1.0",
+  "entries": [
+    {
+      "id": "goblin",
+      "name": "Goblin",
+      "type": "monster",
+      "keywords": ["goblin", "goblins"],
+      "difficulties": {
+        "STR": 10,
+        "DEX": 14,
+        "CON": 10,
+        "INT": 8,
+        "WIS": 12,
+        "CHA": 8
+      },
+      "notes": "Weak but agile. Easy to overpower, hard to catch."
+    },
+    {
+      "id": "dragon",
+      "name": "Dragon",
+      "type": "monster",
+      "keywords": ["ancient dragon", "elder dragon", "wyrm", "dragon", "dragons"],
+      "difficulties": {
+        "STR": 22,
+        "DEX": 18,
+        "CON": 24,
+        "INT": 20,
+        "WIS": 18,
+        "CHA": 20
+      },
+      "notes": "Near impossible without legendary equipment or allies."
+    },
+    {
+      "id": "lock",
+      "name": "Lock",
+      "type": "obstacle",
+      "keywords": ["lock", "locked"],
+      "difficulties": {
+        "DEX": 14,
+        "INT": 12
+      },
+      "notes": "A standard lock."
+    },
+    {
+      "id": "simple_lock",
+      "name": "Simple Lock",
+      "type": "obstacle",
+      "keywords": ["simple lock", "basic lock", "cheap lock", "old lock", "rusty lock"],
+      "difficulties": {
+        "DEX": 10,
+        "INT": 8
+      },
+      "notes": "Trivial for trained rogues."
+    },
+    {
+      "id": "masterwork_lock",
+      "name": "Masterwork Lock",
+      "type": "obstacle",
+      "keywords": ["masterwork lock", "complex lock", "intricate lock", "vault lock", "vault"],
+      "difficulties": {
+        "DEX": 20,
+        "INT": 18
+      },
+      "notes": "Requires exceptional skill or clever thinking."
+    },
+    {
+      "id": "guard",
+      "name": "Guard",
+      "type": "npc",
+      "keywords": ["elite guard", "palace guard", "city guard", "town guard", "guard", "guards", "city watch", "watchman"],
+      "difficulties": {
+        "STR": 14,
+        "DEX": 12,
+        "CON": 14,
+        "INT": 10,
+        "WIS": 12,
+        "CHA": 12
+      },
+      "notes": "Trained but not elite. Can be talked down or outrun."
+    },
+    {
+      "id": "merchant",
+      "name": "Merchant",
+      "type": "npc",
+      "keywords": ["merchant", "shopkeeper", "trader", "vendor", "shop"],
+      "difficulties": {
+        "INT": 14,
+        "WIS": 14,
+        "CHA": 16
+      },
+      "notes": "Hard to deceive or haggle with."
+    },
+    {
+      "id": "cliff",
+      "name": "Cliff",
+      "type": "obstacle",
+      "keywords": ["cliff", "climb", "climbing", "rock face", "precipice", "ledge", "wall"],
+      "difficulties": {
+        "STR": 14,
+        "DEX": 12,
+        "CON": 14
+      },
+      "notes": "Physically demanding. Failure means falling."
+    },
+    {
+      "id": "trap",
+      "name": "Trap",
+      "type": "trap",
+      "keywords": ["poison trap", "dart trap", "pit trap", "spike trap", "fire trap", "trap", "trapped", "tripwire", "snare"],
+      "difficulties": {
+        "DEX": 16,
+        "INT": 14,
+        "WIS": 14
+      },
+      "notes": "Spot it with awareness, disarm with dexterity or smarts."
+    },
+    {
+      "id": "door",
+      "name": "Door",
+      "type": "obstacle",
+      "keywords": ["reinforced door", "iron door", "wooden door", "heavy door", "door", "gate", "barred"],
+      "difficulties": {
+        "STR": 16,
+        "DEX": 12
+      },
+      "notes": "Break it down or find another way."
+    }
+  ]
+}

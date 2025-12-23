@@ -1,0 +1,173 @@
+{
+  "name": "Star Wars",
+  "version": "1.0",
+  "entries": [
+    {
+      "id": "stormtrooper",
+      "name": "Stormtrooper",
+      "type": "enemy",
+      "keywords": ["stormtrooper", "stormtroopers", "trooper", "troopers", "imperial soldier"],
+      "difficulties": {
+        "STR": 12,
+        "DEX": 8,
+        "CON": 12,
+        "INT": 8,
+        "WIS": 8,
+        "CHA": 10
+      },
+      "notes": "Notorious for missing shots. Easy to deceive with mind tricks."
+    },
+    {
+      "id": "sith",
+      "name": "Sith",
+      "type": "enemy",
+      "keywords": ["sith lord", "dark lord", "sith", "darth"],
+      "difficulties": {
+        "STR": 18,
+        "DEX": 18,
+        "CON": 16,
+        "INT": 16,
+        "WIS": 18,
+        "CHA": 18
+      },
+      "notes": "Extremely dangerous. Strong in the Dark Side."
+    },
+    {
+      "id": "jedi",
+      "name": "Jedi",
+      "type": "npc",
+      "keywords": ["jedi master", "jedi knight", "jedi", "padawan"],
+      "difficulties": {
+        "STR": 16,
+        "DEX": 18,
+        "CON": 14,
+        "INT": 14,
+        "WIS": 18,
+        "CHA": 16
+      },
+      "notes": "Skilled with lightsaber and the Force."
+    },
+    {
+      "id": "bounty_hunter",
+      "name": "Bounty Hunter",
+      "type": "enemy",
+      "keywords": ["bounty hunter", "mandalorian", "hunter"],
+      "difficulties": {
+        "STR": 14,
+        "DEX": 16,
+        "CON": 14,
+        "INT": 14,
+        "WIS": 14,
+        "CHA": 12
+      },
+      "notes": "Resourceful and well-equipped. Hard to escape."
+    },
+    {
+      "id": "hutt",
+      "name": "Hutt",
+      "type": "npc",
+      "keywords": ["hutt", "jabba", "crime lord"],
+      "difficulties": {
+        "STR": 10,
+        "DEX": 6,
+        "CON": 18,
+        "INT": 16,
+        "WIS": 14,
+        "CHA": 18
+      },
+      "notes": "Immune to mind tricks. Master negotiators and criminals."
+    },
+    {
+      "id": "droid",
+      "name": "Droid",
+      "type": "npc",
+      "keywords": ["protocol droid", "astromech", "battle droid", "droid", "droids"],
+      "difficulties": {
+        "STR": 10,
+        "DEX": 10,
+        "CON": 12,
+        "INT": 14,
+        "WIS": 8,
+        "CHA": 8
+      },
+      "notes": "Immune to Force persuasion. Can be sliced or disabled."
+    },
+    {
+      "id": "imperial_officer",
+      "name": "Imperial Officer",
+      "type": "npc",
+      "keywords": ["imperial officer", "moff", "admiral", "commander", "officer"],
+      "difficulties": {
+        "STR": 10,
+        "DEX": 10,
+        "CON": 10,
+        "INT": 14,
+        "WIS": 12,
+        "CHA": 14
+      },
+      "notes": "Trained to resist interrogation. Arrogant but disciplined."
+    },
+    {
+      "id": "blast_door",
+      "name": "Blast Door",
+      "type": "obstacle",
+      "keywords": ["blast door", "blast doors", "security door", "airlock"],
+      "difficulties": {
+        "STR": 22,
+        "DEX": 16,
+        "INT": 14
+      },
+      "notes": "Nearly impossible to force. Slice the controls or find another way."
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal",
+      "type": "obstacle",
+      "keywords": ["terminal", "console", "computer", "security system", "slicing"],
+      "difficulties": {
+        "INT": 14,
+        "DEX": 12
+      },
+      "notes": "Standard Imperial security. R2 units have advantage."
+    },
+    {
+      "id": "tractor_beam",
+      "name": "Tractor Beam",
+      "type": "obstacle",
+      "keywords": ["tractor beam", "tractor"],
+      "difficulties": {
+        "STR": 20,
+        "DEX": 18,
+        "INT": 16
+      },
+      "notes": "Disable at the source or outmaneuver it."
+    },
+    {
+      "id": "wookiee",
+      "name": "Wookiee",
+      "type": "npc",
+      "keywords": ["wookiee", "wookiees", "chewie", "chewbacca"],
+      "difficulties": {
+        "STR": 20,
+        "DEX": 12,
+        "CON": 18,
+        "INT": 12,
+        "WIS": 12,
+        "CHA": 10
+      },
+      "notes": "Incredibly strong. Known to pull arms from sockets."
+    },
+    {
+      "id": "cantina",
+      "name": "Cantina",
+      "type": "location",
+      "keywords": ["cantina", "bar", "tavern", "mos eisley"],
+      "difficulties": {
+        "WIS": 14,
+        "CHA": 12,
+        "DEX": 14
+      },
+      "notes": "Wretched hive of scum and villainy. Watch your back."
+    }
+  ]
+}

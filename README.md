@@ -28,7 +28,7 @@ The user still sees the dice roll (via a toast notification), but the AI only re
 
 1. Open SillyTavern
 2. Go to **Extensions** > **Install Extension**
-3. Enter the GitHub URL: `https://github.com/yourusername/skill-check`
+3. Enter the GitHub URL: `https://github.com/lucashald/skill-check`
 4. Click **Install**
 5. Refresh the page (F5 or Ctrl+R)
 
@@ -319,7 +319,7 @@ Created for the SillyTavern community.
 
 ## Support
 
-- Report bugs: [GitHub Issues](https://github.com/yourusername/skill-check/issues)
+- Report bugs: [GitHub Issues](https://github.com/lucashald/skill-check/issues)
 - Discuss: [SillyTavern Discord](https://discord.gg/sillytavern)
 
 ---

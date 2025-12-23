@@ -29,16 +29,254 @@ const defaultSettings = {
         stat5: 'WIS',
         stat6: 'CHA'
     },
-    difficulty: 12
+    difficulty: 12,
+    useCompendium: true,
+    contextMessages: 5,
+    manualChallenge: null // null = auto-detect, or entry id for manual override
 };
 
 // Stats array for iteration (internal keys)
 const statKeys = ['stat1', 'stat2', 'stat3', 'stat4', 'stat5', 'stat6'];
 
+// Loaded compendiums storage
+let loadedCompendiums = [];
+
 // Get display name for a stat
 function getStatName(statKey) {
     const settings = extension_settings[extensionName];
     return settings?.statNames?.[statKey] || statKey.toUpperCase();
+}
+
+// List of available compendium files
+const compendiumFiles = [
+    'default-compendium.json',
+    'star-wars-compendium.json'
+];
+
+// Load compendiums from extension folder
+async function loadCompendiums() {
+    loadedCompendiums = [];
+    const settings = extension_settings[extensionName];
+
+    // Initialize compendium enabled states if not present
+    if (!settings.enabledCompendiums) {
+        settings.enabledCompendiums = {};
+    }
+
+    for (const filename of compendiumFiles) {
+        try {
+            const path = `/scripts/extensions/third-party/${extensionName}/${filename}`;
+            const response = await fetch(path);
+            if (response.ok) {
+                const compendium = await response.json();
+                compendium._filename = filename;
+                // Default to enabled for default compendium, disabled for others
+                if (settings.enabledCompendiums[filename] === undefined) {
+                    settings.enabledCompendiums[filename] = (filename === 'default-compendium.json');
+                }
+                compendium._enabled = settings.enabledCompendiums[filename];
+                loadedCompendiums.push(compendium);
+                console.log(`[Skill Check] Loaded compendium: ${compendium.name} (${compendium._enabled ? 'enabled' : 'disabled'})`);
+            }
+        } catch (error) {
+            console.warn(`[Skill Check] Could not load compendium ${filename}:`, error);
+        }
+    }
+
+    console.log('[Skill Check] Total compendiums loaded:', loadedCompendiums.length);
+    return loadedCompendiums;
+}
+
+// Toggle a compendium's enabled state
+function toggleCompendium(filename, enabled) {
+    const settings = extension_settings[extensionName];
+    settings.enabledCompendiums[filename] = enabled;
+
+    // Update the loaded compendium's state
+    const compendium = loadedCompendiums.find(c => c._filename === filename);
+    if (compendium) {
+        compendium._enabled = enabled;
+    }
+
+    saveSettingsDebounced();
+}
+
+// Get recent chat context for scanning
+function getRecentContext(messageCount = 5) {
+    try {
+        // Try to access SillyTavern's chat context
+        const context = typeof getContext === 'function' ? getContext() : null;
+        if (context && context.chat && context.chat.length > 0) {
+            const recent = context.chat.slice(-messageCount);
+            return recent.map(m => m.mes || '').join(' ');
+        }
+    } catch (e) {
+        console.warn('[Skill Check] Could not access chat context:', e);
+    }
+    return '';
+}
+
+// Scan text for challenge keywords
+function scanForChallenges(text) {
+    const lowerText = text.toLowerCase();
+    const matches = [];
+
+    for (const compendium of loadedCompendiums) {
+        if (!compendium._enabled) continue;
+
+        for (const entry of compendium.entries) {
+            for (const keyword of entry.keywords) {
+                if (lowerText.includes(keyword.toLowerCase())) {
+                    matches.push({
+                        entry: entry,
+                        keyword: keyword,
+                        compendium: compendium.name,
+                        priority: keyword.length // Longer matches = more specific
+                    });
+                    break; // One match per entry is enough
+                }
+            }
+        }
+    }
+
+    // Sort by priority — prefer specific matches over generic
+    matches.sort((a, b) => b.priority - a.priority);
+    return matches;
+}
+
+// Capitalize a keyword for display (e.g., "pit trap" → "Pit Trap")
+function capitalizeKeyword(keyword) {
+    return keyword.split(' ').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    ).join(' ');
+}
+
+// Get active difficulty for a stat based on context
+function getActiveDifficulty(statDisplayName) {
+    const settings = extension_settings[extensionName];
+
+    // If compendium matching is disabled, use default
+    if (!settings.useCompendium) {
+        return {
+            difficulty: settings.difficulty,
+            source: null,
+            notes: null,
+            entry: null
+        };
+    }
+
+    // Check for manual override
+    if (settings.manualChallenge) {
+        for (const compendium of loadedCompendiums) {
+            const entry = compendium.entries.find(e => e.id === settings.manualChallenge);
+            if (entry) {
+                const entryDifficulty = entry.difficulties[statDisplayName.toUpperCase()];
+                if (entryDifficulty !== undefined) {
+                    return {
+                        difficulty: entryDifficulty,
+                        source: entry.name, // Manual override uses entry name
+                        notes: entry.notes,
+                        entry: entry
+                    };
+                }
+            }
+        }
+    }
+
+    // Auto-detect from context
+    const context = getRecentContext(settings.contextMessages || 5);
+    const matches = scanForChallenges(context);
+
+    if (matches.length > 0) {
+        // Find best match that has a difficulty for this stat
+        for (const match of matches) {
+            const entryDifficulty = match.entry.difficulties[statDisplayName.toUpperCase()];
+            if (entryDifficulty !== undefined) {
+                return {
+                    difficulty: entryDifficulty,
+                    source: capitalizeKeyword(match.keyword), // Use matched keyword, not entry name
+                    notes: match.entry.notes,
+                    entry: match.entry
+                };
+            }
+        }
+    }
+
+    // Fall back to default difficulty
+    return {
+        difficulty: settings.difficulty,
+        source: null,
+        notes: null,
+        entry: null
+    };
+}
+
+// Get all current challenge matches for display
+function getCurrentChallengeMatches() {
+    const settings = extension_settings[extensionName];
+    const context = getRecentContext(settings.contextMessages || 5);
+    return scanForChallenges(context);
+}
+
+// Get display text for current detected challenge
+function getCurrentChallengeDisplay() {
+    const settings = extension_settings[extensionName];
+
+    if (!settings.useCompendium) {
+        return '<span class="challenge-none">Compendium disabled</span>';
+    }
+
+    if (settings.manualChallenge) {
+        for (const compendium of loadedCompendiums) {
+            const entry = compendium.entries.find(e => e.id === settings.manualChallenge);
+            if (entry) {
+                return `<span class="challenge-manual">${entry.name}</span> <small>(manual)</small>`;
+            }
+        }
+    }
+
+    const matches = getCurrentChallengeMatches();
+    if (matches.length === 0) {
+        return '<span class="challenge-none">None detected</span>';
+    }
+
+    const best = matches[0];
+    const displayName = capitalizeKeyword(best.keyword); // Use matched keyword
+    const otherCount = matches.length - 1;
+    let html = `<span class="challenge-detected">${displayName}</span>`;
+    if (best.entry.notes) {
+        html += `<br><small class="challenge-notes">${best.entry.notes}</small>`;
+    }
+    if (otherCount > 0) {
+        html += `<br><small class="challenge-others">+${otherCount} other match${otherCount > 1 ? 'es' : ''}</small>`;
+    }
+    return html;
+}
+
+// Get all challenge options for manual override dropdown
+function getAllChallengeOptions(selectedId) {
+    let options = '';
+    for (const compendium of loadedCompendiums) {
+        if (!compendium._enabled) continue;
+
+        // Group by type
+        const byType = {};
+        for (const entry of compendium.entries) {
+            const type = entry.type || 'other';
+            if (!byType[type]) byType[type] = [];
+            byType[type].push(entry);
+        }
+
+        for (const [type, entries] of Object.entries(byType)) {
+            options += `<optgroup label="${type.charAt(0).toUpperCase() + type.slice(1)}s">`;
+            for (const entry of entries) {
+                const selected = entry.id === selectedId ? 'selected' : '';
+                options += `<option value="${entry.id}" ${selected}>${entry.name}</option>`;
+            }
+            options += '</optgroup>';
+        }
+    }
+    return options;
 }
 
 // Calculate D&D-style modifier
@@ -85,11 +323,15 @@ function determineOutcome(naturalRoll, total, difficulty) {
 }
 
 // Show toast notification
-function showRollResult(stat, naturalRoll, modifier, total, outcome) {
+function showRollResult(stat, naturalRoll, modifier, total, outcome, challengeInfo) {
+    const { difficulty, source } = challengeInfo;
+    const modStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+    const vsText = source ? `vs ${source} (DC ${difficulty})` : `(DC ${difficulty})`;
+
     const toast = $(`
         <div class="skill-check-toast">
-            <strong>${stat} Check</strong><br>
-            ${naturalRoll} + ${modifier} = ${total}<br>
+            <strong>${stat} Check ${vsText}</strong><br>
+            <span class="roll-math">${naturalRoll} ${modStr} = ${total}</span><br>
             <span class="outcome-${outcome.tier}">${outcome.tier.replace('_', ' ').toUpperCase()}</span>
         </div>
     `);
@@ -124,18 +366,22 @@ async function performSkillCheck(statKey) {
     const statValue = settings.stats[statKey];
     const modifier = getModifier(statValue);
 
+    // Get active difficulty from compendium or default
+    const challengeInfo = getActiveDifficulty(statDisplayName);
+
     // Roll the dice
     const naturalRoll = rollD20();
     const total = naturalRoll + modifier;
 
-    // Determine outcome
-    const outcome = determineOutcome(naturalRoll, total, settings.difficulty);
+    // Determine outcome using the challenge difficulty
+    const outcome = determineOutcome(naturalRoll, total, challengeInfo.difficulty);
 
     // Show result to user
-    showRollResult(statDisplayName, naturalRoll, modifier, total, outcome);
+    showRollResult(statDisplayName, naturalRoll, modifier, total, outcome, challengeInfo);
 
-    // Build the message - injection only if no user message
-    const injection = `[System: The user attempted an action using ${statDisplayName}. They ${outcome.text}]`;
+    // Build the injection with challenge context
+    const vsText = challengeInfo.source ? ` against ${challengeInfo.source}` : '';
+    const injection = `[System: The user attempted an action${vsText} using ${statDisplayName}. They ${outcome.text}]`;
     textarea.value = userMessage ? `${userMessage}\n\n${injection}` : injection;
 
     // Trigger send button click
@@ -145,23 +391,6 @@ async function performSkillCheck(statKey) {
     } else {
         console.error('[Skill Check] Could not find send button');
     }
-}
-
-// Show warning message
-function showWarning(message) {
-    const toast = $(`
-        <div class="skill-check-toast warning">
-            <strong>⚠ Skill Check</strong><br>
-            ${message}
-        </div>
-    `);
-
-    $('body').append(toast);
-    setTimeout(() => toast.addClass('show'), 10);
-    setTimeout(() => {
-        toast.removeClass('show');
-        setTimeout(() => toast.remove(), 300);
-    }, 2500);
 }
 
 // Create stat buttons UI
@@ -271,7 +500,42 @@ function openCharacterSheet() {
                 </div>
                 <div class="skill-check-popup-content">
                     <div class="skill-check-popup-section">
-                        <h4>Difficulty Class (DC)</h4>
+                        <h4>Compendiums</h4>
+                        <div class="skill-check-compendium-list">
+                            ${loadedCompendiums.map(comp => `
+                                <label class="checkbox_label skill-check-compendium-toggle">
+                                    <input type="checkbox" data-filename="${comp._filename}" ${comp._enabled ? 'checked' : ''} />
+                                    <span>${comp.name}</span>
+                                    <small class="compendium-entry-count">(${comp.entries.length} entries)</small>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="skill-check-popup-section">
+                        <h4>Detection</h4>
+                        <label class="checkbox_label skill-check-toggle">
+                            <input id="skill-check-use-compendium" type="checkbox" ${settings.useCompendium ? 'checked' : ''} />
+                            <span>Auto-detect challenges from context</span>
+                        </label>
+                        <div class="skill-check-challenge-info">
+                            <small>Current challenge:</small>
+                            <div id="skill-check-detected-challenge" class="skill-check-detected">
+                                ${getCurrentChallengeDisplay()}
+                            </div>
+                        </div>
+                        <div class="skill-check-manual-override">
+                            <small>Manual override:</small>
+                            <select id="skill-check-manual-challenge" class="text_pole">
+                                <option value="">Auto-detect</option>
+                                ${getAllChallengeOptions(settings.manualChallenge)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="skill-check-popup-section">
+                        <h4>Default Difficulty (DC)</h4>
+                        <small>Used when no challenge is detected</small>
                         <div class="skill-check-difficulty-row">
                             <input
                                 id="skill-check-popup-difficulty"
@@ -377,6 +641,35 @@ function openCharacterSheet() {
             loadSettingsUI();
         }
         $(this).val(''); // Reset dropdown
+    });
+
+    // Individual compendium toggle handlers
+    popup.find('.skill-check-compendium-toggle input').on('change', function() {
+        const filename = $(this).data('filename');
+        const enabled = $(this).prop('checked');
+        toggleCompendium(filename, enabled);
+        // Refresh the detected challenge display and manual override options
+        popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
+        popup.find('#skill-check-manual-challenge').html(
+            '<option value="">Auto-detect</option>' + getAllChallengeOptions(settings.manualChallenge)
+        );
+    });
+
+    // Auto-detect toggle handler
+    popup.find('#skill-check-use-compendium').on('change', function() {
+        settings.useCompendium = $(this).prop('checked');
+        saveSettingsDebounced();
+        // Refresh the detected challenge display
+        popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
+    });
+
+    // Manual challenge override handler
+    popup.find('#skill-check-manual-challenge').on('change', function() {
+        const value = $(this).val();
+        settings.manualChallenge = value || null;
+        saveSettingsDebounced();
+        // Refresh the detected challenge display
+        popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
     });
 
     // Stat name input handler
@@ -596,6 +889,9 @@ jQuery(async () => {
         }
 
         console.log('[Skill Check] Settings initialized:', extension_settings[extensionName]);
+
+        // Load compendiums
+        await loadCompendiums();
 
         // Create UI elements
         createStatButtons();

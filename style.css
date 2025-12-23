@@ -378,6 +378,89 @@
     margin-top: 10px;
 }
 
+/* Compendium section */
+.skill-check-compendium-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.skill-check-compendium-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.skill-check-compendium-toggle span {
+    flex: 1;
+}
+
+.compendium-entry-count {
+    color: #888;
+    font-size: 11px;
+}
+
+.skill-check-toggle {
+    margin-bottom: 10px;
+}
+
+.skill-check-challenge-info {
+    margin: 10px 0;
+    padding: 10px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+}
+
+.skill-check-detected {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.challenge-detected {
+    color: #51cf66;
+    font-weight: 600;
+}
+
+.challenge-manual {
+    color: #4dabf7;
+    font-weight: 600;
+}
+
+.challenge-none {
+    color: #868e96;
+    font-style: italic;
+}
+
+.challenge-notes {
+    color: #aaa;
+    display: block;
+    margin-top: 4px;
+}
+
+.challenge-others {
+    color: #868e96;
+}
+
+.skill-check-manual-override {
+    margin-top: 10px;
+}
+
+.skill-check-manual-override select {
+    width: 100%;
+    margin-top: 4px;
+}
+
+/* Roll math in toast */
+.roll-math {
+    font-family: monospace;
+    font-size: 14px;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .skill-check-container {
