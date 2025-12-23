@@ -35,7 +35,9 @@ const defaultSettings = {
     contextMessages: 5,
     manualChallenge: null, // null = auto-detect, or entry id for manual override
     level: 1,
-    pendingLevelUps: 0
+    pendingLevelUps: 0,
+    lastLevelUpMessageIndex: -1, // Track last message index where level-up was detected
+    levelUpMessageGap: 3 // Require this many AI messages before checking again
 };
 
 // Stats array for iteration (internal keys)
@@ -282,102 +284,198 @@ function getAllChallengeOptions(selectedId) {
     return options;
 }
 
-// Level-up keywords to detect
-const levelUpKeywords = [
+// Level-up trigger keywords (announce new level)
+const levelUpTriggerKeywords = [
     'level up',
     'leveled up',
     'levelled up',
     'gained a level',
     'gain a level',
+    'gained \\d+ levels',
+    'gain \\d+ levels',
     'reached level',
-    'now level',
     'advanced to level',
     'you are now level',
     'congratulations.*level',
     'new level'
 ];
 
-// Track last checked message to avoid duplicate detections
-let lastCheckedMessageId = null;
+// Reference phrases (talking about past level-up, don't trigger)
+const levelUpReferencePatterns = [
+    'now that you.*level',
+    'since you.*level',
+    'after leveling',
+    'having leveled',
+    'your new level',
+    'the level you gained',
+    'with your level'
+];
 
-// Check if text contains level-up indication
-function detectLevelUp(text) {
+// Check if text is just referencing a past level-up
+function isLevelUpReference(text) {
     const lowerText = text.toLowerCase();
-    for (const keyword of levelUpKeywords) {
-        // Support simple regex patterns
-        if (keyword.includes('.*')) {
-            const regex = new RegExp(keyword, 'i');
-            if (regex.test(text)) return true;
-        } else {
-            if (lowerText.includes(keyword)) return true;
+    for (const pattern of levelUpReferencePatterns) {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(lowerText)) {
+            return true;
         }
     }
     return false;
 }
 
-// Show level-up notification
-function showLevelUpToast() {
+// Detect level-up and extract count (returns { detected: bool, count: number })
+function detectLevelUp(text) {
+    const lowerText = text.toLowerCase();
+
+    // Skip if this is just a reference to past level-up
+    if (isLevelUpReference(text)) {
+        return { detected: false, count: 0 };
+    }
+
+    let levelsGained = 0;
+
+    // Check for "gain X levels" or "gained X levels"
+    const multiLevelMatch = text.match(/gain(?:ed)?\s+(\d+)\s+levels?/i);
+    if (multiLevelMatch) {
+        levelsGained = Math.max(levelsGained, parseInt(multiLevelMatch[1]));
+    }
+
+    // Check for "you are now level X" and calculate difference
+    const nowLevelMatch = text.match(/(?:you are now|reached|advanced to)\s+level\s+(\d+)/i);
+    if (nowLevelMatch) {
+        const settings = extension_settings[extensionName];
+        const newLevel = parseInt(nowLevelMatch[1]);
+        const gained = newLevel - settings.level;
+        if (gained > 0) {
+            levelsGained = Math.max(levelsGained, gained);
+        }
+    }
+
+    // Count occurrences of "level up!" (repeated)
+    const levelUpCount = (text.match(/level\s+up[!\s]/gi) || []).length;
+    if (levelUpCount > 0) {
+        levelsGained = Math.max(levelsGained, levelUpCount);
+    }
+
+    // Check standard trigger keywords (count as 1 level if not already detected)
+    if (levelsGained === 0) {
+        for (const keyword of levelUpTriggerKeywords) {
+            const regex = new RegExp(keyword, 'i');
+            if (regex.test(lowerText)) {
+                levelsGained = 1;
+                break;
+            }
+        }
+    }
+
+    return {
+        detected: levelsGained > 0,
+        count: levelsGained
+    };
+}
+
+// Show level-up notification with confirmation
+function showLevelUpToast(count, messageIndex) {
     // Remove existing level-up toast if any
     $('.skill-check-levelup-toast').remove();
 
+    const pointsText = count === 1 ? '1 point' : `${count} points`;
+    const levelText = count === 1 ? 'Level Up!' : `Level Up! (+${count})`;
+
     const toast = $(`
         <div class="skill-check-levelup-toast">
-            <div class="levelup-title">Level Up!</div>
-            <div class="levelup-subtitle">Click to spend your stat point</div>
+            <div class="levelup-title">${levelText}</div>
+            <div class="levelup-subtitle">${pointsText} to spend</div>
+            <div class="levelup-buttons">
+                <button class="levelup-apply menu_button">Apply</button>
+                <button class="levelup-ignore menu_button">Ignore</button>
+            </div>
         </div>
     `);
 
-    toast.on('click', function() {
+    // Apply button - grant levels and open character sheet
+    toast.find('.levelup-apply').on('click', function() {
+        applyLevelUp(count, messageIndex);
         toast.remove();
         openCharacterSheet();
     });
 
+    // Ignore button - just update tracking index
+    toast.find('.levelup-ignore').on('click', function() {
+        ignoreLevelUp(messageIndex);
+        toast.remove();
+    });
+
     $('body').append(toast);
 
-    // Auto-dismiss after 10 seconds
+    // Auto-dismiss after 15 seconds
     setTimeout(() => {
-        toast.fadeOut(300, () => toast.remove());
-    }, 10000);
+        // If still visible, treat as ignored
+        if (toast.is(':visible')) {
+            ignoreLevelUp(messageIndex);
+            toast.fadeOut(300, () => toast.remove());
+        }
+    }, 15000);
 }
 
-// Process level up - increment level and add pending point
-function processLevelUp() {
+// Apply level-up: grant levels and update tracking
+function applyLevelUp(count, messageIndex) {
     const settings = extension_settings[extensionName];
-    settings.level += 1;
-    settings.pendingLevelUps += 1;
+    settings.level += count;
+    settings.pendingLevelUps += count;
+    settings.lastLevelUpMessageIndex = messageIndex;
     saveSettingsDebounced();
 
-    console.log(`[Skill Check] Level up! Now level ${settings.level}, ${settings.pendingLevelUps} pending point(s)`);
-    showLevelUpToast();
+    console.log(`[Skill Check] Level up applied! +${count} level(s), now level ${settings.level}, ${settings.pendingLevelUps} pending point(s)`);
+}
+
+// Ignore level-up: just update tracking to prevent re-trigger
+function ignoreLevelUp(messageIndex) {
+    const settings = extension_settings[extensionName];
+    settings.lastLevelUpMessageIndex = messageIndex;
+    saveSettingsDebounced();
+
+    console.log(`[Skill Check] Level up ignored at message ${messageIndex}`);
 }
 
 // Check the most recent AI message for level-up
 function checkForLevelUp() {
     try {
+        const settings = extension_settings[extensionName];
         const context = typeof getContext === 'function' ? getContext() : null;
         if (!context || !context.chat || context.chat.length === 0) return;
 
-        // Get the most recent AI message
-        const recentMessages = context.chat.slice(-3);
-        for (let i = recentMessages.length - 1; i >= 0; i--) {
-            const msg = recentMessages[i];
+        const chat = context.chat;
+        const currentIndex = chat.length - 1;
+
+        // Check if we're within the cooldown period
+        if (settings.lastLevelUpMessageIndex >= 0) {
+            const gap = currentIndex - settings.lastLevelUpMessageIndex;
+            if (gap < settings.levelUpMessageGap) {
+                // Still in cooldown, don't check
+                return;
+            }
+        }
+
+        // Count AI messages from the end
+        let aiMessagesChecked = 0;
+        for (let i = chat.length - 1; i >= 0 && aiMessagesChecked < 1; i--) {
+            const msg = chat[i];
+
             // Skip user messages
             if (msg.is_user) continue;
 
-            // Check if we already processed this message
-            const msgId = `${context.chat.length}-${i}-${msg.mes?.substring(0, 50)}`;
-            if (msgId === lastCheckedMessageId) return;
+            aiMessagesChecked++;
 
-            // Check for level-up
-            if (msg.mes && detectLevelUp(msg.mes)) {
-                lastCheckedMessageId = msgId;
-                processLevelUp();
-                return;
+            // Check for level-up in this AI message
+            if (msg.mes) {
+                const result = detectLevelUp(msg.mes);
+                if (result.detected && result.count > 0) {
+                    console.log(`[Skill Check] Level-up detected: +${result.count} level(s) at message index ${i}`);
+                    showLevelUpToast(result.count, i);
+                    return;
+                }
             }
-
-            // Only check the most recent AI message
-            lastCheckedMessageId = msgId;
-            return;
         }
     } catch (e) {
         console.warn('[Skill Check] Error checking for level-up:', e);

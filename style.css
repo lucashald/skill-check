@@ -213,13 +213,15 @@
     color: #e0e0e0;
     border: 1px solid rgba(140, 120, 100, 0.4);
     border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 13px;
+    padding: 6px 10px;
+    font-size: 14px;
     cursor: pointer;
     transition: all 0.2s ease;
-    display: flex;
+    display: inline-flex !important;
     align-items: center;
     justify-content: center;
+    min-width: 32px;
+    height: 28px;
 }
 
 .skill-check-sheet-btn:hover {
@@ -455,26 +457,59 @@
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
     z-index: 10000;
-    min-width: 220px;
-    cursor: pointer;
+    min-width: 240px;
     transition: all 0.3s ease;
-}
-
-.skill-check-levelup-toast:hover {
-    background-color: rgba(50, 65, 35, 0.98);
-    transform: translateY(-2px);
 }
 
 .skill-check-levelup-toast .levelup-title {
     color: #ffd43b;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 15px;
     margin-bottom: 4px;
 }
 
 .skill-check-levelup-toast .levelup-subtitle {
     color: #aaa;
     font-size: 12px;
+    margin-bottom: 10px;
+}
+
+.levelup-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.levelup-apply,
+.levelup-ignore {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.levelup-apply {
+    background-color: rgba(80, 200, 120, 0.3);
+    border: 1px solid rgba(80, 200, 120, 0.6);
+    color: #fff;
+}
+
+.levelup-apply:hover {
+    background-color: rgba(80, 200, 120, 0.5);
+    border-color: rgba(80, 200, 120, 0.8);
+}
+
+.levelup-ignore {
+    background-color: rgba(100, 100, 100, 0.3);
+    border: 1px solid rgba(150, 150, 150, 0.4);
+    color: #ccc;
+}
+
+.levelup-ignore:hover {
+    background-color: rgba(120, 120, 120, 0.4);
+    border-color: rgba(150, 150, 150, 0.6);
 }
 
 .skill-check-challenge-info {
