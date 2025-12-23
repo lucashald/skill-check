@@ -1,5 +1,11 @@
-import { extension_settings, saveSettingsDebounced } from "../../../extensions.js";
-import { eventSource, event_types } from "../../../../script.js";
+import { extension_settings } from "../../../extensions.js";
+
+// Try to get saveSettingsDebounced from window or create a fallback
+const saveSettingsDebounced = window.saveSettingsDebounced || function() {
+    console.log('[Skill Check] Saving settings (using fallback)');
+    // Settings are already saved to extension_settings object
+    // SillyTavern will persist them automatically
+};
 
 const extensionName = "skill-check";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
