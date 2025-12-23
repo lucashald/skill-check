@@ -30,15 +30,41 @@ The user still sees the dice roll (via a toast notification), but the AI only re
 2. Go to **Extensions** > **Install Extension**
 3. Enter the GitHub URL: `https://github.com/yourusername/skill-check`
 4. Click **Install**
+5. Refresh the page (F5 or Ctrl+R)
 
 ### Method 2: Manual Installation
 
 1. Download or clone this repository
-2. Copy the `skill-check` folder to:
+2. Navigate to your SillyTavern installation folder
+3. Copy the entire `skill-check` folder to:
    ```
-   SillyTavern/public/scripts/extensions/third-party/skill-check/
+   [SillyTavern]/public/scripts/extensions/third-party/skill-check/
    ```
-3. Restart SillyTavern or reload the page
+   **Important**: The files must be in a folder named `skill-check` inside the `third-party` directory.
+
+4. Your folder structure should look like this:
+   ```
+   SillyTavern/
+   └── public/
+       └── scripts/
+           └── extensions/
+               └── third-party/
+                   └── skill-check/          ← Extension folder
+                       ├── manifest.json
+                       ├── index.js
+                       ├── style.css
+                       └── README.md
+   ```
+5. Restart SillyTavern or refresh the page (Ctrl+R or F5)
+
+### Verifying Installation
+
+After installing, open your browser console (F12) and look for:
+```
+[Skill Check] ✓ Extension loaded successfully
+```
+
+If you see this, the extension is working! The stat buttons should appear near your message input area.
 
 ## How to Use
 
@@ -157,23 +183,101 @@ When you make a skill check, the extension appends this to your message:
 
 ## Troubleshooting
 
+### Extension not loading at all (no console messages)
+
+**Problem**: You don't see any `[Skill Check]` messages in the browser console (F12).
+
+**Solutions**:
+1. **Check file location**: The extension must be in:
+   ```
+   [SillyTavern]/public/scripts/extensions/third-party/skill-check/
+   ```
+   NOT in:
+   - `[SillyTavern]/public/scripts/extensions/skill-check/` (missing third-party folder)
+   - `[SillyTavern]/extensions/skill-check/` (wrong extensions folder)
+
+2. **Verify file structure**: Make sure all files are present:
+   - `manifest.json`
+   - `index.js`
+   - `style.css`
+
+3. **Check manifest.json**: Open it and verify it's valid JSON (no syntax errors)
+
+4. **Refresh completely**:
+   - Hard refresh: Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac)
+   - Or clear browser cache and restart SillyTavern
+
+5. **Check browser console for errors**: Press F12 and look for any red error messages
+
+### Extension loads but no UI appears
+
+**Problem**: You see `[Skill Check] Extension loaded successfully` but no stat buttons.
+
+**Debug steps**:
+1. Open browser console (F12)
+2. Look for messages like:
+   ```
+   [Skill Check] Injecting before #send_form
+   [Skill Check] Stat buttons created successfully
+   ```
+
+3. If you see `FAILED to inject stat buttons`, check the error details
+
+4. **Check if extension is enabled**:
+   - Look for "Skill Check Settings" in Extensions panel
+   - Make sure the "Enable Skill Check Extension" checkbox is checked
+
+5. **Try manual injection** in console:
+   ```javascript
+   $('#send_form').before('<div style="background:red;padding:10px;">TEST</div>')
+   ```
+   If this doesn't appear, your SillyTavern theme uses different selectors.
+
+### Settings panel not appearing
+
+**Problem**: You don't see "Skill Check Settings" in the Extensions panel.
+
+**Solutions**:
+1. Check console for: `[Skill Check] Settings panel created successfully`
+2. If you see an error about `#extensions_settings2`, your SillyTavern version may use a different structure
+3. Try scrolling down in the Extensions settings panel - it may be at the bottom
+
 ### Stat buttons not appearing
 - Make sure the extension is enabled in settings
 - Check the browser console for errors (F12)
 - Verify the extension loaded: look for `[Skill Check] Extension loaded successfully` in the console
+- Check that the buttons aren't hidden - look for the "Skill Check:" label near your message box
 
 ### Messages not sending
 - Ensure you've typed a message before clicking a stat button
 - Check that the send button (`#send_but`) exists in your SillyTavern theme
+- Look in console for errors when clicking a stat button
 
 ### AI ignoring outcomes
 - Make sure your system prompt doesn't override system instructions
 - Some models may be more compliant than others with outcome instructions
+- Try adding a note in your system prompt: "Follow [System:] instructions exactly"
 
 ### Settings not saving
 - Settings auto-save when changed
 - Check browser console for errors
 - Ensure SillyTavern has write permissions for `settings.json`
+- Try changing a setting and refreshing - if it reverts, there's a save issue
+
+### Getting detailed debug info
+
+If none of the above helps, run this in the browser console (F12):
+```javascript
+console.log('=== Skill Check Debug Info ===');
+console.log('Extension settings:', extension_settings['skill-check']);
+console.log('Buttons exist:', $('#skill-check-buttons').length > 0);
+console.log('Settings panel exists:', $('#skill-check-settings').length > 0);
+console.log('Send form:', $('#send_form').length);
+console.log('Send textarea:', $('#send_textarea').length);
+console.log('Send button:', $('#send_but').length);
+```
+
+Share this output when reporting issues.
 
 ## Development
 

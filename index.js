@@ -151,6 +151,8 @@ function showWarning(message) {
 
 // Create stat buttons UI
 function createStatButtons() {
+    console.log('[Skill Check] Creating stat buttons...');
+
     const container = $(`
         <div id="skill-check-buttons" class="skill-check-container">
             <div class="skill-check-label">Skill Check:</div>
@@ -170,18 +172,58 @@ function createStatButtons() {
         performSkillCheck(stat);
     });
 
-    // Insert before send button
+    // Try multiple injection points with fallbacks
+    let injected = false;
+
+    // Try 1: Before #send_form
     const sendForm = $('#send_form');
     if (sendForm.length) {
+        console.log('[Skill Check] Injecting before #send_form');
         sendForm.before(container);
-    } else {
-        console.warn('[Skill Check] Could not find #send_form, appending to #send_textarea parent');
+        injected = true;
+    }
+    // Try 2: After #send_textarea
+    else if ($('#send_textarea').length) {
+        console.log('[Skill Check] Injecting after #send_textarea');
+        $('#send_textarea').after(container);
+        injected = true;
+    }
+    // Try 3: Before #send_but
+    else if ($('#send_but').length) {
+        console.log('[Skill Check] Injecting before #send_but');
+        $('#send_but').before(container);
+        injected = true;
+    }
+    // Try 4: Look for form with send_textarea
+    else if ($('#send_textarea').parent().length) {
+        console.log('[Skill Check] Injecting into #send_textarea parent');
         $('#send_textarea').parent().append(container);
+        injected = true;
+    }
+    // Try 5: Append to chat form area
+    else if ($('.mes_buttons').length) {
+        console.log('[Skill Check] Injecting before .mes_buttons');
+        $('.mes_buttons').first().before(container);
+        injected = true;
+    }
+
+    if (injected) {
+        console.log('[Skill Check] Stat buttons created successfully');
+    } else {
+        console.error('[Skill Check] FAILED to inject stat buttons - no suitable injection point found');
+        console.error('[Skill Check] Available elements:', {
+            send_form: $('#send_form').length,
+            send_textarea: $('#send_textarea').length,
+            send_but: $('#send_but').length,
+            mes_buttons: $('.mes_buttons').length
+        });
     }
 }
 
 // Create settings panel
 function createSettingsPanel() {
+    console.log('[Skill Check] Creating settings panel...');
+
     const settingsHtml = `
         <div id="skill-check-settings" class="skill-check-settings-panel">
             <div class="inline-drawer">
@@ -257,7 +299,13 @@ function createSettingsPanel() {
         </div>
     `;
 
-    $('#extensions_settings2').append(settingsHtml);
+    const settingsContainer = $('#extensions_settings2');
+    if (settingsContainer.length) {
+        settingsContainer.append(settingsHtml);
+        console.log('[Skill Check] Settings panel created successfully');
+    } else {
+        console.error('[Skill Check] Could not find #extensions_settings2 to inject settings panel');
+    }
 
     // Load current settings into UI
     loadSettingsUI();
@@ -308,33 +356,49 @@ function toggleExtension() {
 
 // Initialize extension
 jQuery(async () => {
-    console.log('[Skill Check] Extension loading...');
+    try {
+        console.log('[Skill Check] ========================================');
+        console.log('[Skill Check] Extension loading...');
+        console.log('[Skill Check] jQuery version:', $.fn.jquery);
+        console.log('[Skill Check] Extension settings available:', typeof extension_settings !== 'undefined');
 
-    // Initialize settings
-    if (!extension_settings[extensionName]) {
-        extension_settings[extensionName] = defaultSettings;
-    } else {
-        // Merge with defaults to ensure all properties exist
-        extension_settings[extensionName] = Object.assign(
-            {},
-            defaultSettings,
-            extension_settings[extensionName]
-        );
+        // Initialize settings
+        if (!extension_settings[extensionName]) {
+            console.log('[Skill Check] Creating new settings with defaults');
+            extension_settings[extensionName] = defaultSettings;
+        } else {
+            console.log('[Skill Check] Merging existing settings with defaults');
+            // Merge with defaults to ensure all properties exist
+            extension_settings[extensionName] = Object.assign(
+                {},
+                defaultSettings,
+                extension_settings[extensionName]
+            );
 
-        // Ensure all stats exist
-        extension_settings[extensionName].stats = Object.assign(
-            {},
-            defaultSettings.stats,
-            extension_settings[extensionName].stats
-        );
+            // Ensure all stats exist
+            extension_settings[extensionName].stats = Object.assign(
+                {},
+                defaultSettings.stats,
+                extension_settings[extensionName].stats
+            );
+        }
+
+        console.log('[Skill Check] Settings initialized:', extension_settings[extensionName]);
+
+        // Create UI elements
+        createStatButtons();
+        createSettingsPanel();
+
+        // Set initial visibility
+        toggleExtension();
+
+        console.log('[Skill Check] ✓ Extension loaded successfully');
+        console.log('[Skill Check] ========================================');
+    } catch (error) {
+        console.error('[Skill Check] ========================================');
+        console.error('[Skill Check] FATAL ERROR during initialization:');
+        console.error('[Skill Check]', error);
+        console.error('[Skill Check]', error.stack);
+        console.error('[Skill Check] ========================================');
     }
-
-    // Create UI elements
-    createStatButtons();
-    createSettingsPanel();
-
-    // Set initial visibility
-    toggleExtension();
-
-    console.log('[Skill Check] Extension loaded successfully');
 });
