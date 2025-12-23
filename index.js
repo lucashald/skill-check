@@ -109,11 +109,20 @@ function toggleCompendium(filename, enabled) {
 // Get recent chat context for scanning
 function getRecentContext(messageCount = 5) {
     try {
+        console.log('[Skill Check] getRecentContext called, messageCount:', messageCount);
         // Try to access SillyTavern's chat context
         const context = typeof getContext === 'function' ? getContext() : null;
+        console.log('[Skill Check] getContext available:', typeof getContext === 'function');
+        console.log('[Skill Check] context exists:', !!context);
+
         if (context && context.chat && context.chat.length > 0) {
+            console.log('[Skill Check] Chat messages count:', context.chat.length);
             const recent = context.chat.slice(-messageCount);
-            return recent.map(m => m.mes || '').join(' ');
+            const recentText = recent.map(m => m.mes || '').join(' ');
+            console.log('[Skill Check] Recent context (first 200 chars):', recentText.substring(0, 200));
+            return recentText;
+        } else {
+            console.warn('[Skill Check] No chat context available or chat is empty');
         }
     } catch (e) {
         console.warn('[Skill Check] Could not access chat context:', e);
@@ -123,15 +132,20 @@ function getRecentContext(messageCount = 5) {
 
 // Scan text for challenge keywords
 function scanForChallenges(text) {
+    console.log('[Skill Check] scanForChallenges called with text:', text.substring(0, 200));
+    console.log('[Skill Check] Loaded compendiums count:', loadedCompendiums.length);
+
     const lowerText = text.toLowerCase();
     const matches = [];
 
     for (const compendium of loadedCompendiums) {
+        console.log(`[Skill Check] Checking compendium: ${compendium.name}, enabled: ${compendium._enabled}`);
         if (!compendium._enabled) continue;
 
         for (const entry of compendium.entries) {
             for (const keyword of entry.keywords) {
                 if (lowerText.includes(keyword.toLowerCase())) {
+                    console.log(`[Skill Check] ✓ Matched keyword "${keyword}" in entry "${entry.name}"`);
                     matches.push({
                         entry: entry,
                         keyword: keyword,
@@ -146,6 +160,7 @@ function scanForChallenges(text) {
 
     // Sort by priority — prefer specific matches over generic
     matches.sort((a, b) => b.priority - a.priority);
+    console.log(`[Skill Check] scanForChallenges found ${matches.length} matches`);
     return matches;
 }
 
@@ -158,10 +173,12 @@ function capitalizeKeyword(keyword) {
 
 // Get active difficulty for a stat based on context
 function getActiveDifficulty(statDisplayName) {
+    console.log('[Skill Check] ===== getActiveDifficulty called for stat:', statDisplayName, '=====');
     const settings = extension_settings[extensionName];
 
     // If compendium matching is disabled, use default
     if (!settings.useCompendium) {
+        console.log('[Skill Check] Compendium matching disabled, using default difficulty:', settings.difficulty);
         return {
             difficulty: settings.difficulty,
             source: null,
@@ -172,11 +189,13 @@ function getActiveDifficulty(statDisplayName) {
 
     // Check for manual override
     if (settings.manualChallenge) {
+        console.log('[Skill Check] Manual challenge override set:', settings.manualChallenge);
         for (const compendium of loadedCompendiums) {
             const entry = compendium.entries.find(e => e.id === settings.manualChallenge);
             if (entry) {
                 const entryDifficulty = entry.difficulties[statDisplayName.toUpperCase()];
                 if (entryDifficulty !== undefined) {
+                    console.log('[Skill Check] Using manual override:', entry.name, 'DC', entryDifficulty);
                     return {
                         difficulty: entryDifficulty,
                         source: entry.name, // Manual override uses entry name
@@ -189,14 +208,18 @@ function getActiveDifficulty(statDisplayName) {
     }
 
     // Auto-detect from context
+    console.log('[Skill Check] Auto-detecting challenge from context...');
     const context = getRecentContext(settings.contextMessages || 5);
     const matches = scanForChallenges(context);
 
     if (matches.length > 0) {
+        console.log('[Skill Check] Found', matches.length, 'matches');
         // Find best match that has a difficulty for this stat
         for (const match of matches) {
             const entryDifficulty = match.entry.difficulties[statDisplayName.toUpperCase()];
+            console.log(`[Skill Check] Checking match "${match.keyword}" for ${statDisplayName} difficulty:`, entryDifficulty);
             if (entryDifficulty !== undefined) {
+                console.log('[Skill Check] ✓ Using detected challenge:', capitalizeKeyword(match.keyword), 'DC', entryDifficulty);
                 return {
                     difficulty: entryDifficulty,
                     source: capitalizeKeyword(match.keyword), // Use matched keyword, not entry name
@@ -205,9 +228,12 @@ function getActiveDifficulty(statDisplayName) {
                 };
             }
         }
+    } else {
+        console.log('[Skill Check] No matches found');
     }
 
     // Fall back to default difficulty
+    console.log('[Skill Check] Falling back to default difficulty:', settings.difficulty);
     return {
         difficulty: settings.difficulty,
         source: null,
@@ -325,10 +351,12 @@ function isLevelUpReference(text) {
 
 // Detect level-up and extract count (returns { detected: bool, count: number })
 function detectLevelUp(text) {
+    console.log('[Skill Check] detectLevelUp called');
     const lowerText = text.toLowerCase();
 
     // Skip if this is just a reference to past level-up
     if (isLevelUpReference(text)) {
+        console.log('[Skill Check] Text is a reference to past level-up, skipping');
         return { detected: false, count: 0 };
     }
 
@@ -337,15 +365,18 @@ function detectLevelUp(text) {
     // Check for "gain X levels" or "gained X levels"
     const multiLevelMatch = text.match(/gain(?:ed)?\s+(\d+)\s+levels?/i);
     if (multiLevelMatch) {
+        console.log('[Skill Check] Matched "gain X levels":', multiLevelMatch[0]);
         levelsGained = Math.max(levelsGained, parseInt(multiLevelMatch[1]));
     }
 
     // Check for "you are now level X" and calculate difference
     const nowLevelMatch = text.match(/(?:you are now|reached|advanced to)\s+level\s+(\d+)/i);
     if (nowLevelMatch) {
+        console.log('[Skill Check] Matched "you are now level X":', nowLevelMatch[0]);
         const settings = extension_settings[extensionName];
         const newLevel = parseInt(nowLevelMatch[1]);
         const gained = newLevel - settings.level;
+        console.log(`[Skill Check] Current level: ${settings.level}, new level: ${newLevel}, gained: ${gained}`);
         if (gained > 0) {
             levelsGained = Math.max(levelsGained, gained);
         }
@@ -354,6 +385,7 @@ function detectLevelUp(text) {
     // Count occurrences of "level up!" (repeated)
     const levelUpCount = (text.match(/level\s+up[!\s]/gi) || []).length;
     if (levelUpCount > 0) {
+        console.log('[Skill Check] Found "level up!" count:', levelUpCount);
         levelsGained = Math.max(levelsGained, levelUpCount);
     }
 
@@ -362,12 +394,14 @@ function detectLevelUp(text) {
         for (const keyword of levelUpTriggerKeywords) {
             const regex = new RegExp(keyword, 'i');
             if (regex.test(lowerText)) {
+                console.log('[Skill Check] Matched trigger keyword:', keyword);
                 levelsGained = 1;
                 break;
             }
         }
     }
 
+    console.log('[Skill Check] detectLevelUp result: detected =', levelsGained > 0, ', count =', levelsGained);
     return {
         detected: levelsGained > 0,
         count: levelsGained
@@ -441,18 +475,32 @@ function ignoreLevelUp(messageIndex) {
 // Check the most recent AI message for level-up
 function checkForLevelUp() {
     try {
+        console.log('[Skill Check] ===== checkForLevelUp called =====');
         const settings = extension_settings[extensionName];
         const context = typeof getContext === 'function' ? getContext() : null;
-        if (!context || !context.chat || context.chat.length === 0) return;
+
+        console.log('[Skill Check] getContext available:', typeof getContext === 'function');
+        console.log('[Skill Check] context exists:', !!context);
+
+        if (!context || !context.chat || context.chat.length === 0) {
+            console.warn('[Skill Check] No chat context available for level-up check');
+            return;
+        }
 
         const chat = context.chat;
         const currentIndex = chat.length - 1;
 
+        console.log('[Skill Check] Chat length:', chat.length);
+        console.log('[Skill Check] Current index:', currentIndex);
+        console.log('[Skill Check] Last level-up index:', settings.lastLevelUpMessageIndex);
+        console.log('[Skill Check] Required gap:', settings.levelUpMessageGap);
+
         // Check if we're within the cooldown period
         if (settings.lastLevelUpMessageIndex >= 0) {
             const gap = currentIndex - settings.lastLevelUpMessageIndex;
+            console.log('[Skill Check] Gap since last level-up:', gap);
             if (gap < settings.levelUpMessageGap) {
-                // Still in cooldown, don't check
+                console.log('[Skill Check] Still in cooldown period, skipping check');
                 return;
             }
         }
@@ -462,6 +510,8 @@ function checkForLevelUp() {
         for (let i = chat.length - 1; i >= 0 && aiMessagesChecked < 1; i--) {
             const msg = chat[i];
 
+            console.log(`[Skill Check] Checking message ${i}, is_user: ${msg.is_user}`);
+
             // Skip user messages
             if (msg.is_user) continue;
 
@@ -469,28 +519,38 @@ function checkForLevelUp() {
 
             // Check for level-up in this AI message
             if (msg.mes) {
+                console.log(`[Skill Check] AI message content (first 200 chars):`, msg.mes.substring(0, 200));
                 const result = detectLevelUp(msg.mes);
+                console.log(`[Skill Check] detectLevelUp result:`, result);
                 if (result.detected && result.count > 0) {
-                    console.log(`[Skill Check] Level-up detected: +${result.count} level(s) at message index ${i}`);
+                    console.log(`[Skill Check] ✓ Level-up detected: +${result.count} level(s) at message index ${i}`);
                     showLevelUpToast(result.count, i);
                     return;
+                } else {
+                    console.log('[Skill Check] No level-up detected in this message');
                 }
             }
         }
+        console.log('[Skill Check] ===== checkForLevelUp complete, no level-up found =====');
     } catch (e) {
-        console.warn('[Skill Check] Error checking for level-up:', e);
+        console.error('[Skill Check] Error checking for level-up:', e);
+        console.error('[Skill Check]', e.stack);
     }
 }
 
 // Set up level-up detection using MutationObserver
 function setupLevelUpDetection() {
+    console.log('[Skill Check] ===== Setting up level-up detection =====');
+    console.log('[Skill Check] eventSource available:', typeof eventSource !== 'undefined');
+
     // Try to hook into SillyTavern events if available
     if (typeof eventSource !== 'undefined') {
         try {
             eventSource.on('message_received', () => {
+                console.log('[Skill Check] message_received event fired');
                 setTimeout(checkForLevelUp, 500); // Small delay to ensure message is in context
             });
-            console.log('[Skill Check] Level-up detection hooked into message events');
+            console.log('[Skill Check] ✓ Level-up detection hooked into message_received event');
             return;
         } catch (e) {
             console.warn('[Skill Check] Could not hook into message events:', e);
@@ -499,10 +559,14 @@ function setupLevelUpDetection() {
 
     // Fallback: Use MutationObserver to watch for new messages
     const chatContainer = document.getElementById('chat');
+    console.log('[Skill Check] chat container found:', !!chatContainer);
+
     if (chatContainer) {
         const observer = new MutationObserver((mutations) => {
+            console.log('[Skill Check] MutationObserver triggered, mutations:', mutations.length);
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length > 0) {
+                    console.log('[Skill Check] New nodes added to chat, checking for level-up');
                     // New content added, check for level-up after a delay
                     setTimeout(checkForLevelUp, 500);
                     break;
@@ -511,11 +575,11 @@ function setupLevelUpDetection() {
         });
 
         observer.observe(chatContainer, { childList: true, subtree: true });
-        console.log('[Skill Check] Level-up detection using MutationObserver');
+        console.log('[Skill Check] ✓ Level-up detection using MutationObserver on #chat');
     } else {
         // Last resort: periodic check
         setInterval(checkForLevelUp, 3000);
-        console.log('[Skill Check] Level-up detection using periodic check');
+        console.log('[Skill Check] ⚠ Level-up detection using periodic check (3s interval)');
     }
 }
 
