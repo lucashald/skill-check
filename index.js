@@ -169,7 +169,10 @@ function scanForChallenges(messages) {
                 if (matches.find(m => m.entry.id === entry.id)) continue;
 
                 for (const keyword of entry.keywords) {
-                    if (lowerText.includes(keyword.toLowerCase())) {
+                    // Use word boundaries to match complete words only (prevents "ledge" matching "knowledge")
+                    const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+                    if (regex.test(lowerText)) {
                         console.log(`[Skill Check] ✓ Matched keyword "${keyword}" in entry "${entry.name}" (message ${msgIndex}, recency bonus: ${recencyBonus})`);
                         matches.push({
                             entry: entry,
