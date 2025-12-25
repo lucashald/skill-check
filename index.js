@@ -237,6 +237,19 @@ function getActiveDifficulty(statDisplayName) {
     // Auto-detect from context
     console.log('[Skill Check] Auto-detecting challenge from context...');
     const recentMessages = getRecentContext(settings.contextMessages || 5);
+
+    // IMPORTANT: Also scan the current unsent message in the textarea
+    const textarea = document.getElementById('send_textarea');
+    if (textarea && textarea.value.trim()) {
+        const currentMessage = {
+            mes: textarea.value.trim(),
+            is_user: true
+        };
+        console.log('[Skill Check] Including current unsent message:', currentMessage.mes.substring(0, 100));
+        // Add current message as the most recent (highest priority)
+        recentMessages.push(currentMessage);
+    }
+
     const matches = scanForChallenges(recentMessages);
 
     if (matches.length > 0) {
