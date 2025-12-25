@@ -609,6 +609,74 @@
     font-size: 14px;
 }
 
+/* Inventory and Spells sections */
+.skill-check-inventory-list,
+.skill-check-spells-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.skill-check-inventory-item,
+.skill-check-spell-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.skill-check-item-name,
+.skill-check-spell-name {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 13px;
+}
+
+.skill-check-item-quantity {
+    width: 60px;
+    padding: 6px 8px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.skill-check-item-delete,
+.skill-check-spell-delete {
+    padding: 4px 8px;
+    font-size: 18px;
+    min-width: 32px;
+    font-weight: 600;
+    color: #ff6b6b;
+    background-color: rgba(255, 107, 107, 0.1);
+    border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.skill-check-item-delete:hover,
+.skill-check-spell-delete:hover {
+    background-color: rgba(255, 107, 107, 0.2);
+    border-color: rgba(255, 107, 107, 0.5);
+}
+
+.skill-check-empty-list {
+    color: #888;
+    font-style: italic;
+    font-size: 12px;
+    padding: 12px;
+    text-align: center;
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+}
+
+#skill-check-add-item,
+#skill-check-add-spell {
+    width: 100%;
+    margin-top: 4px;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .skill-check-container {

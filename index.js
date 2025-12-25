@@ -38,7 +38,9 @@ const defaultSettings = {
     level: 1,
     pendingLevelUps: 0,
     lastLevelUpMessageIndex: -1, // Track last message index where level-up was detected
-    levelUpMessageGap: 3 // Require this many AI messages before checking again
+    levelUpMessageGap: 3, // Require this many AI messages before checking again
+    inventory: [], // Array of { name: string, quantity: number }
+    spells: [] // Array of { name: string }
 };
 
 // Stats array for iteration (internal keys)
@@ -512,7 +514,7 @@ function ignoreLevelUp(messageIndex) {
     console.log(`[Skill Check] Level up ignored at message ${messageIndex}`);
 }
 
-// Check the most recent AI message for level-up
+// Check the most recent AI message for level-up, inventory, and spells
 function checkForLevelUp() {
     try {
         console.log('[Skill Check] ===== checkForLevelUp called =====');
@@ -557,9 +559,11 @@ function checkForLevelUp() {
 
             aiMessagesChecked++;
 
-            // Check for level-up in this AI message
+            // Check for level-up, inventory, and spells in this AI message
             if (msg.mes) {
                 console.log(`[Skill Check] AI message content (first 200 chars):`, msg.mes.substring(0, 200));
+
+                // Check for level-up
                 const result = detectLevelUp(msg.mes);
                 console.log(`[Skill Check] detectLevelUp result:`, result);
                 if (result.detected && result.count > 0) {
@@ -569,12 +573,164 @@ function checkForLevelUp() {
                 } else {
                     console.log('[Skill Check] No level-up detected in this message');
                 }
+
+                // Check for inventory and spell changes
+                checkForInventoryAndSpells(msg.mes);
             }
         }
         console.log('[Skill Check] ===== checkForLevelUp complete, no level-up found =====');
     } catch (e) {
         console.error('[Skill Check] Error checking for level-up:', e);
         console.error('[Skill Check]', e.stack);
+    }
+}
+
+// Detect inventory additions (returns array of { name, quantity })
+function detectInventoryAdditions(text) {
+    const additions = [];
+    // Pattern: "added to inventory" or "added X to inventory" or "gained X"
+    const patterns = [
+        /added?\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+to\s+(?:your\s+)?inventory/gi,
+        /(?:gained?|obtained?|received?|found?|acquired?)\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)(?:\s+(?:from|in|at|near)|\.|$)/gi
+    ];
+
+    for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(text)) !== null) {
+            const quantity = match[1] ? parseInt(match[1]) : 1;
+            const itemName = match[2].trim();
+            // Skip very short or very long item names
+            if (itemName.length > 2 && itemName.length < 50) {
+                additions.push({ name: itemName, quantity });
+            }
+        }
+    }
+
+    return additions;
+}
+
+// Detect inventory removals (returns array of { name, quantity })
+function detectInventoryRemovals(text) {
+    const removals = [];
+    // Pattern: "removed from inventory" or "removed X from inventory" or "lost X"
+    const patterns = [
+        /removed?\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+from\s+(?:your\s+)?inventory/gi,
+        /(?:lost|dropped?|consumed?|used?)\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)(?:\s+(?:from|in|at|near)|\.|$)/gi
+    ];
+
+    for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(text)) !== null) {
+            const quantity = match[1] ? parseInt(match[1]) : 1;
+            const itemName = match[2].trim();
+            // Skip very short or very long item names
+            if (itemName.length > 2 && itemName.length < 50) {
+                removals.push({ name: itemName, quantity });
+            }
+        }
+    }
+
+    return removals;
+}
+
+// Detect spell learning (returns array of spell names)
+function detectSpellLearning(text) {
+    const spells = [];
+    // Pattern: "you learn the spell X" or "you learned the spell X"
+    const patterns = [
+        /you\s+(?:learn(?:ed)?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell\s+([a-z0-9\s\-']+?)(?:\s+(?:from|at|in|level|\.|$))/gi,
+        /(?:learned?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell[:\s]+([a-z0-9\s\-']+?)(?:\s+(?:from|at|in|level|\.|$))/gi
+    ];
+
+    for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(text)) !== null) {
+            const spellName = match[1].trim();
+            // Skip very short or very long spell names
+            if (spellName.length > 2 && spellName.length < 50) {
+                spells.push(spellName);
+            }
+        }
+    }
+
+    return spells;
+}
+
+// Add item to inventory
+function addToInventory(itemName, quantity = 1) {
+    const settings = extension_settings[extensionName];
+    if (!settings.inventory) settings.inventory = [];
+
+    // Check if item already exists
+    const existing = settings.inventory.find(item =>
+        item.name.toLowerCase() === itemName.toLowerCase()
+    );
+
+    if (existing) {
+        existing.quantity += quantity;
+    } else {
+        settings.inventory.push({ name: itemName, quantity });
+    }
+
+    saveSettingsDebounced();
+    console.log(`[Skill Check] Added ${quantity}x ${itemName} to inventory`);
+}
+
+// Remove item from inventory
+function removeFromInventory(itemName, quantity = 1) {
+    const settings = extension_settings[extensionName];
+    if (!settings.inventory) settings.inventory = [];
+
+    const existing = settings.inventory.find(item =>
+        item.name.toLowerCase() === itemName.toLowerCase()
+    );
+
+    if (existing) {
+        existing.quantity -= quantity;
+        if (existing.quantity <= 0) {
+            // Remove item completely if quantity is 0 or less
+            settings.inventory = settings.inventory.filter(item => item !== existing);
+        }
+        saveSettingsDebounced();
+        console.log(`[Skill Check] Removed ${quantity}x ${itemName} from inventory`);
+    }
+}
+
+// Add spell to spell list
+function addSpell(spellName) {
+    const settings = extension_settings[extensionName];
+    if (!settings.spells) settings.spells = [];
+
+    // Check if spell already exists (case insensitive)
+    const exists = settings.spells.some(spell =>
+        spell.name.toLowerCase() === spellName.toLowerCase()
+    );
+
+    if (!exists) {
+        settings.spells.push({ name: spellName });
+        saveSettingsDebounced();
+        console.log(`[Skill Check] Learned spell: ${spellName}`);
+    }
+}
+
+// Check for inventory and spell changes in a message
+function checkForInventoryAndSpells(text) {
+    // Detect inventory additions
+    const additions = detectInventoryAdditions(text);
+    for (const item of additions) {
+        addToInventory(item.name, item.quantity);
+    }
+
+    // Detect inventory removals
+    const removals = detectInventoryRemovals(text);
+    for (const item of removals) {
+        removeFromInventory(item.name, item.quantity);
+    }
+
+    // Detect spell learning
+    const spells = detectSpellLearning(text);
+    for (const spellName of spells) {
+        addSpell(spellName);
     }
 }
 
@@ -834,7 +990,7 @@ function updateStatButtonLabels() {
 }
 
 // Open character sheet popup
-function openCharacterSheet() {
+function openCharacterSheet(scrollPosition = 0) {
     // Remove existing popup if any
     $('#skill-check-sheet-popup').remove();
 
@@ -966,6 +1122,55 @@ function openCharacterSheet() {
                     </div>
 
                     <div class="skill-check-popup-section">
+                        <h4>Inventory</h4>
+                        <small>Auto-detected from "added to inventory" / "removed from inventory"</small>
+                        <div class="skill-check-inventory-list">
+                            ${settings.inventory && settings.inventory.length > 0 ? settings.inventory.map((item, index) => `
+                                <div class="skill-check-inventory-item" data-index="${index}">
+                                    <input
+                                        type="text"
+                                        class="skill-check-item-name text_pole"
+                                        value="${item.name}"
+                                        placeholder="Item name"
+                                    />
+                                    <input
+                                        type="number"
+                                        class="skill-check-item-quantity text_pole"
+                                        min="1"
+                                        value="${item.quantity}"
+                                        title="Quantity"
+                                    />
+                                    <button class="skill-check-item-delete menu_button" title="Remove item">×</button>
+                                </div>
+                            `).join('') : '<div class="skill-check-empty-list">No items in inventory</div>'}
+                        </div>
+                        <button id="skill-check-add-item" class="menu_button">
+                            <i class="fa-solid fa-plus"></i> Add Item
+                        </button>
+                    </div>
+
+                    <div class="skill-check-popup-section">
+                        <h4>Spells</h4>
+                        <small>Auto-detected from "you learn the spell X"</small>
+                        <div class="skill-check-spells-list">
+                            ${settings.spells && settings.spells.length > 0 ? settings.spells.map((spell, index) => `
+                                <div class="skill-check-spell-item" data-index="${index}">
+                                    <input
+                                        type="text"
+                                        class="skill-check-spell-name text_pole"
+                                        value="${spell.name}"
+                                        placeholder="Spell name"
+                                    />
+                                    <button class="skill-check-spell-delete menu_button" title="Remove spell">×</button>
+                                </div>
+                            `).join('') : '<div class="skill-check-empty-list">No spells learned</div>'}
+                        </div>
+                        <button id="skill-check-add-spell" class="menu_button">
+                            <i class="fa-solid fa-plus"></i> Add Spell
+                        </button>
+                    </div>
+
+                    <div class="skill-check-popup-section">
                         <button id="skill-check-reset-defaults" class="menu_button">
                             <i class="fa-solid fa-rotate-left"></i> Reset to Defaults
                         </button>
@@ -977,6 +1182,11 @@ function openCharacterSheet() {
 
     // Add to body
     $('body').append(popup);
+
+    // Restore scroll position
+    if (scrollPosition > 0) {
+        popup.find('.skill-check-popup').scrollTop(scrollPosition);
+    }
 
     // Close button handler
     popup.find('.skill-check-popup-close').on('click', function() {
@@ -1066,8 +1276,9 @@ function openCharacterSheet() {
         settings.useDndStyle = $(this).prop('checked');
         saveSettingsDebounced();
         // Reopen popup to refresh the UI
+        const scrollPos = popup.find('.skill-check-popup').scrollTop();
         popup.remove();
-        openCharacterSheet();
+        openCharacterSheet(scrollPos);
     });
 
     // Stat value input handler
@@ -1097,8 +1308,9 @@ function openCharacterSheet() {
             settings.stats[statKey] -= 1;
             saveSettingsDebounced();
             // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
-            openCharacterSheet();
+            openCharacterSheet(scrollPos);
         }
     });
 
@@ -1110,8 +1322,9 @@ function openCharacterSheet() {
             settings.stats[statKey] += 1;
             saveSettingsDebounced();
             // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
-            openCharacterSheet();
+            openCharacterSheet(scrollPos);
         }
     });
 
@@ -1125,8 +1338,9 @@ function openCharacterSheet() {
         saveSettingsDebounced();
 
         // Reopen popup to refresh the UI
+        const scrollPos = popup.find('.skill-check-popup').scrollTop();
         popup.remove();
-        openCharacterSheet();
+        openCharacterSheet(scrollPos);
     });
 
     // Level input handler
@@ -1137,8 +1351,9 @@ function openCharacterSheet() {
         $(this).val(clampedValue);
         saveSettingsDebounced();
         // Reopen popup to refresh the UI
+        const scrollPos = popup.find('.skill-check-popup').scrollTop();
         popup.remove();
-        openCharacterSheet();
+        openCharacterSheet(scrollPos);
     });
 
     // Level decrement button handler
@@ -1147,8 +1362,9 @@ function openCharacterSheet() {
             settings.level -= 1;
             saveSettingsDebounced();
             // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
-            openCharacterSheet();
+            openCharacterSheet(scrollPos);
         }
     });
 
@@ -1158,8 +1374,91 @@ function openCharacterSheet() {
             settings.level += 1;
             saveSettingsDebounced();
             // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
-            openCharacterSheet();
+            openCharacterSheet(scrollPos);
+        }
+    });
+
+    // Inventory item name change handler
+    popup.find('.skill-check-item-name').on('change', function() {
+        const index = $(this).closest('.skill-check-inventory-item').data('index');
+        const newName = $(this).val().trim();
+        if (newName && settings.inventory[index]) {
+            settings.inventory[index].name = newName;
+            saveSettingsDebounced();
+        }
+    });
+
+    // Inventory item quantity change handler
+    popup.find('.skill-check-item-quantity').on('change', function() {
+        const index = $(this).closest('.skill-check-inventory-item').data('index');
+        const newQuantity = parseInt($(this).val()) || 1;
+        if (settings.inventory[index]) {
+            settings.inventory[index].quantity = Math.max(1, newQuantity);
+            $(this).val(settings.inventory[index].quantity);
+            saveSettingsDebounced();
+        }
+    });
+
+    // Inventory item delete handler
+    popup.find('.skill-check-item-delete').on('click', function() {
+        const index = $(this).closest('.skill-check-inventory-item').data('index');
+        if (settings.inventory[index]) {
+            settings.inventory.splice(index, 1);
+            saveSettingsDebounced();
+            // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
+            popup.remove();
+            openCharacterSheet(scrollPos);
+        }
+    });
+
+    // Add item button handler
+    popup.find('#skill-check-add-item').on('click', function() {
+        const itemName = prompt('Enter item name:');
+        if (itemName && itemName.trim()) {
+            const quantity = parseInt(prompt('Enter quantity:', '1')) || 1;
+            addToInventory(itemName.trim(), quantity);
+            // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
+            popup.remove();
+            openCharacterSheet(scrollPos);
+        }
+    });
+
+    // Spell name change handler
+    popup.find('.skill-check-spell-name').on('change', function() {
+        const index = $(this).closest('.skill-check-spell-item').data('index');
+        const newName = $(this).val().trim();
+        if (newName && settings.spells[index]) {
+            settings.spells[index].name = newName;
+            saveSettingsDebounced();
+        }
+    });
+
+    // Spell delete handler
+    popup.find('.skill-check-spell-delete').on('click', function() {
+        const index = $(this).closest('.skill-check-spell-item').data('index');
+        if (settings.spells[index]) {
+            settings.spells.splice(index, 1);
+            saveSettingsDebounced();
+            // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
+            popup.remove();
+            openCharacterSheet(scrollPos);
+        }
+    });
+
+    // Add spell button handler
+    popup.find('#skill-check-add-spell').on('click', function() {
+        const spellName = prompt('Enter spell name:');
+        if (spellName && spellName.trim()) {
+            addSpell(spellName.trim());
+            // Reopen popup to refresh the UI
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
+            popup.remove();
+            openCharacterSheet(scrollPos);
         }
     });
 
@@ -1172,8 +1471,9 @@ function openCharacterSheet() {
             saveSettingsDebounced();
             updateStatButtonLabels();
             loadSettingsUI();
+            const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
-            openCharacterSheet(); // Reopen with fresh values
+            openCharacterSheet(scrollPos); // Reopen with fresh values
         }
     });
 }
@@ -1347,6 +1647,14 @@ jQuery(async () => {
                 defaultSettings.statNames,
                 extension_settings[extensionName].statNames
             );
+
+            // Ensure inventory and spells arrays exist
+            if (!extension_settings[extensionName].inventory) {
+                extension_settings[extensionName].inventory = [];
+            }
+            if (!extension_settings[extensionName].spells) {
+                extension_settings[extensionName].spells = [];
+            }
         }
 
         console.log('[Skill Check] Settings initialized:', extension_settings[extensionName]);
