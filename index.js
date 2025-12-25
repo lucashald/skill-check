@@ -40,7 +40,8 @@ const defaultSettings = {
     lastLevelUpMessageIndex: -1, // Track last message index where level-up was detected
     levelUpMessageGap: 3, // Require this many AI messages before checking again
     inventory: [], // Array of { name: string, quantity: number }
-    spells: [] // Array of { name: string }
+    spells: [], // Array of { name: string }
+    injectCharacterSheet: true // Inject character sheet into context
 };
 
 // Stats array for iteration (internal keys)
@@ -732,6 +733,77 @@ function checkForInventoryAndSpells(text) {
     for (const spellName of spells) {
         addSpell(spellName);
     }
+
+    // Update character sheet prompt after changes
+    updateCharacterSheetPrompt();
+}
+
+// Build character sheet prompt text
+function buildCharacterSheetPrompt() {
+    const settings = extension_settings[extensionName];
+
+    if (!settings.injectCharacterSheet) {
+        return '';
+    }
+
+    let prompt = '---CHARACTER SHEET---\n';
+
+    // Level
+    prompt += `Level: ${settings.level}\n`;
+
+    // Stats
+    prompt += 'Stats: ';
+    const statStrings = statKeys.map(statKey => {
+        const name = settings.statNames[statKey];
+        const value = settings.stats[statKey];
+        const modifier = getModifier(value);
+        const modStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+        return settings.useDndStyle ? `${name} ${value} (${modStr})` : `${name} ${modStr}`;
+    });
+    prompt += statStrings.join(', ') + '\n';
+
+    // Inventory
+    if (settings.inventory && settings.inventory.length > 0) {
+        prompt += 'Inventory: ';
+        const itemStrings = settings.inventory.map(item =>
+            item.quantity > 1 ? `${item.name} (×${item.quantity})` : item.name
+        );
+        prompt += itemStrings.join(', ') + '\n';
+    }
+
+    // Spells
+    if (settings.spells && settings.spells.length > 0) {
+        prompt += 'Spells: ';
+        const spellStrings = settings.spells.map(spell => spell.name);
+        prompt += spellStrings.join(', ') + '\n';
+    }
+
+    prompt += '---END CHARACTER SHEET---\n';
+    prompt += 'Note: This is the player character\'s current status. Do not narrate or mention this sheet directly unless the player asks about their stats. Use this information to inform your responses about the character\'s capabilities.';
+
+    return prompt;
+}
+
+// Update the character sheet prompt in context
+function updateCharacterSheetPrompt() {
+    const settings = extension_settings[extensionName];
+
+    // Check if setExtensionPrompt is available
+    if (typeof window.setExtensionPrompt === 'function') {
+        const promptText = buildCharacterSheetPrompt();
+
+        // Register the prompt with identifier and position
+        window.setExtensionPrompt(
+            extensionName,           // identifier
+            promptText,              // prompt text
+            2,                       // position: 2 = AFTER_CHAR (after character definitions)
+            0                        // depth (0 = default)
+        );
+
+        console.log('[Skill Check] Character sheet prompt updated');
+    } else {
+        console.warn('[Skill Check] setExtensionPrompt not available - character sheet injection disabled');
+    }
 }
 
 // Set up level-up detection using MutationObserver
@@ -1025,6 +1097,11 @@ function openCharacterSheet(scrollPosition = 0) {
                             <input id="skill-check-use-compendium" type="checkbox" ${settings.useCompendium ? 'checked' : ''} />
                             <span>Auto-detect challenges from context</span>
                         </label>
+                        <label class="checkbox_label skill-check-toggle">
+                            <input id="skill-check-inject-sheet" type="checkbox" ${settings.injectCharacterSheet ? 'checked' : ''} />
+                            <span>Inject character sheet into context</span>
+                        </label>
+                        <small>Provides the AI with your current stats, inventory, and spells</small>
                         <div class="skill-check-challenge-info">
                             <small>Current challenge:</small>
                             <div id="skill-check-detected-challenge" class="skill-check-detected">
@@ -1249,6 +1326,13 @@ function openCharacterSheet(scrollPosition = 0) {
         popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
     });
 
+    // Inject character sheet toggle handler
+    popup.find('#skill-check-inject-sheet').on('change', function() {
+        settings.injectCharacterSheet = $(this).prop('checked');
+        saveSettingsDebounced();
+        updateCharacterSheetPrompt();
+    });
+
     // Manual challenge override handler
     popup.find('#skill-check-manual-challenge').on('change', function() {
         const value = $(this).val();
@@ -1297,6 +1381,7 @@ function openCharacterSheet(scrollPosition = 0) {
 
         saveSettingsDebounced();
         loadSettingsUI();
+        updateCharacterSheetPrompt();
     });
 
     // Stat decrement button handler
@@ -1307,6 +1392,7 @@ function openCharacterSheet(scrollPosition = 0) {
         if (settings.stats[statKey] > minVal) {
             settings.stats[statKey] -= 1;
             saveSettingsDebounced();
+            updateCharacterSheetPrompt();
             // Reopen popup to refresh the UI
             const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
@@ -1321,6 +1407,7 @@ function openCharacterSheet(scrollPosition = 0) {
         if (settings.stats[statKey] < 30) {
             settings.stats[statKey] += 1;
             saveSettingsDebounced();
+            updateCharacterSheetPrompt();
             // Reopen popup to refresh the UI
             const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
@@ -1336,6 +1423,7 @@ function openCharacterSheet(scrollPosition = 0) {
         settings.stats[statKey] += 1;
         settings.pendingLevelUps -= 1;
         saveSettingsDebounced();
+        updateCharacterSheetPrompt();
 
         // Reopen popup to refresh the UI
         const scrollPos = popup.find('.skill-check-popup').scrollTop();
@@ -1350,6 +1438,7 @@ function openCharacterSheet(scrollPosition = 0) {
         settings.level = clampedValue;
         $(this).val(clampedValue);
         saveSettingsDebounced();
+        updateCharacterSheetPrompt();
         // Reopen popup to refresh the UI
         const scrollPos = popup.find('.skill-check-popup').scrollTop();
         popup.remove();
@@ -1361,6 +1450,7 @@ function openCharacterSheet(scrollPosition = 0) {
         if (settings.level > 1) {
             settings.level -= 1;
             saveSettingsDebounced();
+            updateCharacterSheetPrompt();
             // Reopen popup to refresh the UI
             const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
@@ -1373,6 +1463,7 @@ function openCharacterSheet(scrollPosition = 0) {
         if (settings.level < 20) {
             settings.level += 1;
             saveSettingsDebounced();
+            updateCharacterSheetPrompt();
             // Reopen popup to refresh the UI
             const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
@@ -1671,6 +1762,9 @@ jQuery(async () => {
 
         // Set up level-up detection
         setupLevelUpDetection();
+
+        // Initialize character sheet prompt
+        updateCharacterSheetPrompt();
 
         console.log('[Skill Check] ✓ Extension loaded successfully');
         console.log('[Skill Check] ========================================');
