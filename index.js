@@ -911,7 +911,19 @@ function openCharacterSheet() {
                     <div class="skill-check-popup-section">
                         <h4>Stats</h4>
                         <div class="skill-check-level-row">
-                            <span>Level ${settings.level}</span>
+                            <span class="skill-check-level-label">Level</span>
+                            <div class="skill-check-level-controls">
+                                <button class="skill-check-level-decrement menu_button" title="Decrease level">-</button>
+                                <input
+                                    id="skill-check-level-input"
+                                    type="number"
+                                    class="skill-check-level-input text_pole"
+                                    min="1"
+                                    max="20"
+                                    value="${settings.level}"
+                                />
+                                <button class="skill-check-level-increment menu_button" title="Increase level">+</button>
+                            </div>
                             ${settings.pendingLevelUps > 0 ? `<span class="skill-check-pending-levels">(${settings.pendingLevelUps} point${settings.pendingLevelUps > 1 ? 's' : ''} to spend!)</span>` : ''}
                         </div>
                         <label class="checkbox_label skill-check-toggle">
@@ -934,15 +946,19 @@ function openCharacterSheet() {
                                             maxlength="6"
                                             title="Click to edit stat name"
                                         />
-                                        <input
-                                            type="number"
-                                            class="skill-check-stat-value-input text_pole"
-                                            min="${settings.useDndStyle ? '1' : '-10'}"
-                                            max="30"
-                                            value="${statValue}"
-                                        />
+                                        <div class="skill-check-stat-controls">
+                                            <button class="skill-check-stat-decrement menu_button" title="Decrease ${statName}">-</button>
+                                            <input
+                                                type="number"
+                                                class="skill-check-stat-value-input text_pole"
+                                                min="${settings.useDndStyle ? '1' : '-10'}"
+                                                max="30"
+                                                value="${statValue}"
+                                            />
+                                            <button class="skill-check-stat-increment-btn menu_button" title="Increase ${statName}">+</button>
+                                        </div>
                                         <span class="skill-check-stat-modifier ${settings.useDndStyle ? '' : 'hidden'}">(${modStr})</span>
-                                        <button class="skill-check-stat-increment menu_button ${settings.pendingLevelUps > 0 ? '' : 'hidden'}" title="Spend 1 point">+1</button>
+                                        <button class="skill-check-stat-levelup menu_button ${settings.pendingLevelUps > 0 ? '' : 'hidden'}" title="Spend 1 point">+1</button>
                                     </div>
                                 `;
                             }).join('')}
@@ -1066,14 +1082,41 @@ function openCharacterSheet() {
         // Update modifier display
         const modifier = getModifier(clampedValue);
         const modStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
-        $(this).siblings('.skill-check-stat-modifier').text(`(${modStr})`);
+        $(this).closest('.skill-check-popup-stat-row').find('.skill-check-stat-modifier').text(`(${modStr})`);
 
         saveSettingsDebounced();
         loadSettingsUI();
     });
 
-    // Stat increment button handler (for spending level-up points)
-    popup.find('.skill-check-stat-increment').on('click', function() {
+    // Stat decrement button handler
+    popup.find('.skill-check-stat-decrement').on('click', function() {
+        const statRow = $(this).closest('.skill-check-popup-stat-row');
+        const statKey = statRow.data('stat');
+        const minVal = settings.useDndStyle ? 1 : -10;
+        if (settings.stats[statKey] > minVal) {
+            settings.stats[statKey] -= 1;
+            saveSettingsDebounced();
+            // Reopen popup to refresh the UI
+            popup.remove();
+            openCharacterSheet();
+        }
+    });
+
+    // Stat increment button handler
+    popup.find('.skill-check-stat-increment-btn').on('click', function() {
+        const statRow = $(this).closest('.skill-check-popup-stat-row');
+        const statKey = statRow.data('stat');
+        if (settings.stats[statKey] < 30) {
+            settings.stats[statKey] += 1;
+            saveSettingsDebounced();
+            // Reopen popup to refresh the UI
+            popup.remove();
+            openCharacterSheet();
+        }
+    });
+
+    // Stat level-up button handler (for spending level-up points)
+    popup.find('.skill-check-stat-levelup').on('click', function() {
         if (settings.pendingLevelUps <= 0) return;
 
         const statKey = $(this).closest('.skill-check-popup-stat-row').data('stat');
@@ -1084,6 +1127,40 @@ function openCharacterSheet() {
         // Reopen popup to refresh the UI
         popup.remove();
         openCharacterSheet();
+    });
+
+    // Level input handler
+    popup.find('#skill-check-level-input').on('change', function() {
+        const value = parseInt($(this).val()) || 1;
+        const clampedValue = Math.max(1, Math.min(20, value));
+        settings.level = clampedValue;
+        $(this).val(clampedValue);
+        saveSettingsDebounced();
+        // Reopen popup to refresh the UI
+        popup.remove();
+        openCharacterSheet();
+    });
+
+    // Level decrement button handler
+    popup.find('.skill-check-level-decrement').on('click', function() {
+        if (settings.level > 1) {
+            settings.level -= 1;
+            saveSettingsDebounced();
+            // Reopen popup to refresh the UI
+            popup.remove();
+            openCharacterSheet();
+        }
+    });
+
+    // Level increment button handler
+    popup.find('.skill-check-level-increment').on('click', function() {
+        if (settings.level < 20) {
+            settings.level += 1;
+            saveSettingsDebounced();
+            // Reopen popup to refresh the UI
+            popup.remove();
+            openCharacterSheet();
+        }
     });
 
     // Reset to defaults handler

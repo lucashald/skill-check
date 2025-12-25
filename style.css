@@ -416,7 +416,7 @@
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
-    font-weight: 600;
+    flex-wrap: wrap;
 }
 
 .skill-check-pending-levels {
@@ -430,15 +430,59 @@
     50% { opacity: 0.6; }
 }
 
-/* Stat increment button */
-.skill-check-stat-increment {
+/* Stat increment button (for level-up points) */
+.skill-check-stat-levelup {
     padding: 4px 8px;
     font-size: 12px;
     min-width: auto;
 }
 
-.skill-check-stat-increment.hidden {
+.skill-check-stat-levelup.hidden {
     display: none;
+}
+
+/* Stat controls container (value input with +/- buttons) */
+.skill-check-stat-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Stat increment/decrement buttons */
+.skill-check-stat-decrement,
+.skill-check-stat-increment-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: 30px;
+    font-weight: 600;
+}
+
+/* Level controls */
+.skill-check-level-label {
+    font-weight: 600;
+    color: #e0e0e0;
+}
+
+.skill-check-level-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.skill-check-level-input {
+    width: 60px;
+    padding: 6px 8px;
+    font-size: 14px;
+    text-align: center;
+    font-weight: 600;
+}
+
+.skill-check-level-decrement,
+.skill-check-level-increment {
+    padding: 4px 10px;
+    font-size: 13px;
+    min-width: 32px;
+    font-weight: 600;
 }
 
 .skill-check-stat-modifier.hidden {
