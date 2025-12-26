@@ -41,7 +41,8 @@ const defaultSettings = {
     levelUpMessageGap: 3, // Require this many AI messages before checking again
     inventory: [], // Array of { name: string, quantity: number }
     spells: [], // Array of { name: string }
-    injectCharacterSheet: true // Inject character sheet into context
+    injectCharacterSheet: true, // Inject character sheet into context
+    appendRollWithoutSending: true // If true, append roll to message but don't auto-send
 };
 
 // Stats array for iteration (internal keys)
@@ -1160,12 +1161,19 @@ async function performSkillCheck(statKey) {
     const injection = `[System: The user attempted an action${vsText} using ${statDisplayName}. They ${outcome.text}]`;
     textarea.value = userMessage ? `${userMessage}\n\n${injection}` : injection;
 
-    // Trigger send button click
-    const sendButton = document.getElementById('send_but');
-    if (sendButton) {
-        sendButton.click();
+    // Check if we should auto-send or just append
+    if (settings.appendRollWithoutSending) {
+        console.log('[Skill Check] Roll appended to message (auto-send disabled by setting)');
+        // Focus the textarea so user can see the appended text
+        textarea.focus();
     } else {
-        console.error('[Skill Check] Could not find send button');
+        // Trigger send button click
+        const sendButton = document.getElementById('send_but');
+        if (sendButton) {
+            sendButton.click();
+        } else {
+            console.error('[Skill Check] Could not find send button');
+        }
     }
 }
 
@@ -1299,6 +1307,11 @@ function openCharacterSheet(scrollPosition = 0) {
                             <span>Inject character sheet into context</span>
                         </label>
                         <small>Provides the AI with your current stats, inventory, and spells</small>
+                        <label class="checkbox_label skill-check-toggle">
+                            <input id="skill-check-append-without-sending" type="checkbox" ${settings.appendRollWithoutSending ? 'checked' : ''} />
+                            <span>Append roll without auto-sending</span>
+                        </label>
+                        <small>Add roll result to message but don't send automatically (lets you review first)</small>
                         <div class="skill-check-challenge-info">
                             <small>Current challenge:</small>
                             <div id="skill-check-detected-challenge" class="skill-check-detected">
@@ -1528,6 +1541,12 @@ function openCharacterSheet(scrollPosition = 0) {
         settings.injectCharacterSheet = $(this).prop('checked');
         saveSettingsDebounced();
         updateCharacterSheetPrompt();
+    });
+
+    // Append without sending toggle handler
+    popup.find('#skill-check-append-without-sending').on('change', function() {
+        settings.appendRollWithoutSending = $(this).prop('checked');
+        saveSettingsDebounced();
     });
 
     // Manual challenge override handler
