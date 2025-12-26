@@ -1,12 +1,15 @@
 import { extension_settings } from "../../../extensions.js";
 import { getContext } from "../../../extensions.js";
 
-// Try to get saveSettingsDebounced from window or create a fallback
-const saveSettingsDebounced = window.saveSettingsDebounced || function() {
-    console.log('[Skill Check] Saving settings (using fallback)');
-    // Settings are already saved to extension_settings object
-    // SillyTavern will persist them automatically
-};
+// Wrapper to get saveSettingsDebounced from context API
+function saveSettingsDebounced() {
+    const context = getContext();
+    if (context && typeof context.saveSettingsDebounced === 'function') {
+        context.saveSettingsDebounced();
+    } else {
+        console.log('[Skill Check] saveSettingsDebounced not available, settings may not persist');
+    }
+}
 
 const extensionName = "skill-check";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
@@ -39,6 +42,7 @@ const defaultSettings = {
     pendingLevelUps: 0,
     lastLevelUpMessageIndex: -1, // Track last message index where level-up was detected
     levelUpMessageGap: 3, // Require this many AI messages before checking again
+    lastProcessedMessageIndex: -1, // Track last message index processed for inventory/spells
     inventory: [], // Array of { name: string, quantity: number }
     spells: [], // Array of { name: string }
     injectCharacterSheet: true, // Inject character sheet into context
@@ -734,13 +738,28 @@ function checkForLevelUp() {
         console.log('[Skill Check] Last level-up index:', settings.lastLevelUpMessageIndex);
         console.log('[Skill Check] Required gap:', settings.levelUpMessageGap);
 
-        // Check if we're within the cooldown period
+        // Detect chat reset: if current index is less than last tracked indices,
+        // we're in a new/different chat, so reset the tracking
+        if (settings.lastLevelUpMessageIndex >= 0 && currentIndex < settings.lastLevelUpMessageIndex) {
+            console.log('[Skill Check] Chat reset detected (current index < last level-up index), resetting tracking');
+            settings.lastLevelUpMessageIndex = -1;
+            settings.lastProcessedMessageIndex = -1;
+            saveSettingsDebounced();
+        }
+        if (settings.lastProcessedMessageIndex >= 0 && currentIndex < settings.lastProcessedMessageIndex) {
+            console.log('[Skill Check] Chat reset detected (current index < last processed index), resetting tracking');
+            settings.lastProcessedMessageIndex = -1;
+            saveSettingsDebounced();
+        }
+
+        // Check if we're within the cooldown period for level-up detection only
+        let skipLevelUpCheck = false;
         if (settings.lastLevelUpMessageIndex >= 0) {
             const gap = currentIndex - settings.lastLevelUpMessageIndex;
             console.log('[Skill Check] Gap since last level-up:', gap);
             if (gap < settings.levelUpMessageGap) {
-                console.log('[Skill Check] Still in cooldown period, skipping check');
-                return;
+                console.log('[Skill Check] Still in level-up cooldown period, will skip level-up check');
+                skipLevelUpCheck = true;
             }
         }
 
@@ -760,22 +779,32 @@ function checkForLevelUp() {
             if (msg.mes) {
                 console.log(`[Skill Check] AI message content (first 200 chars):`, msg.mes.substring(0, 200));
 
-                // Check for level-up
-                const result = detectLevelUp(msg.mes);
-                console.log(`[Skill Check] detectLevelUp result:`, result);
-                if (result.detected && result.count > 0) {
-                    console.log(`[Skill Check] ✓ Level-up detected: +${result.count} level(s) at message index ${i}`);
-                    showLevelUpToast(result.count, i);
-                    return;
+                // Check for level-up (only if not in cooldown)
+                if (!skipLevelUpCheck) {
+                    const result = detectLevelUp(msg.mes);
+                    console.log(`[Skill Check] detectLevelUp result:`, result);
+                    if (result.detected && result.count > 0) {
+                        console.log(`[Skill Check] ✓ Level-up detected: +${result.count} level(s) at message index ${i}`);
+                        showLevelUpToast(result.count, i);
+                    } else {
+                        console.log('[Skill Check] No level-up detected in this message');
+                    }
                 } else {
-                    console.log('[Skill Check] No level-up detected in this message');
+                    console.log('[Skill Check] Skipping level-up check due to cooldown');
                 }
 
-                // Check for inventory and spell changes
-                checkForInventoryAndSpells(msg.mes);
+                // Check for inventory and spell changes (only if not already processed)
+                if (i > settings.lastProcessedMessageIndex) {
+                    console.log(`[Skill Check] Processing message ${i} for inventory/spells (last processed: ${settings.lastProcessedMessageIndex})`);
+                    checkForInventoryAndSpells(msg.mes);
+                    settings.lastProcessedMessageIndex = i;
+                    saveSettingsDebounced();
+                } else {
+                    console.log(`[Skill Check] Skipping inventory/spell check - message ${i} already processed`);
+                }
             }
         }
-        console.log('[Skill Check] ===== checkForLevelUp complete, no level-up found =====');
+        console.log('[Skill Check] ===== checkForLevelUp complete =====');
     } catch (e) {
         console.error('[Skill Check] Error checking for level-up:', e);
         console.error('[Skill Check]', e.stack);
@@ -793,20 +822,27 @@ function detectInventoryAdditions(text) {
         /(?:(\d+)\s+)?(?:the\s+)?([a-z0-9\s\-']+?)\s+add(?:ed|s)?\s+to\s+(?:your\s+)?inventory/gi
     ];
 
+    console.log('[Skill Check] detectInventoryAdditions called with text:', text.substring(0, 200));
+
     for (const pattern of patterns) {
         let match;
+        // Reset lastIndex for global regex
+        pattern.lastIndex = 0;
         while ((match = pattern.exec(text)) !== null) {
             const quantity = match[1] ? parseInt(match[1]) : 1;
             let itemName = match[2].trim();
+            console.log(`[Skill Check] Inventory regex matched: "${match[0]}", captured item: "${itemName}", qty: ${quantity}`);
             // Remove articles "the", "a", "an" from the beginning
             itemName = itemName.replace(/^(?:the|an?)\s+/i, '');
             // Skip very short or very long item names
             if (itemName.length > 2 && itemName.length < 50) {
                 additions.push({ name: itemName, quantity });
+                console.log(`[Skill Check] ✓ Detected inventory addition: ${quantity}x "${itemName}"`);
             }
         }
     }
 
+    console.log(`[Skill Check] detectInventoryAdditions found ${additions.length} item(s)`);
     return additions;
 }
 
@@ -842,22 +878,30 @@ function detectInventoryRemovals(text) {
 function detectSpellLearning(text) {
     const spells = [];
     // Pattern: "you learn the spell X" or "you learned the spell X"
+    // Spell name must start with letter, can contain letters/numbers/spaces/hyphens/apostrophes, must end with letter/number
     const patterns = [
-        /you\s+(?:learn(?:ed)?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell\s+([a-z0-9\s\-']+?)(?:\s+(?:from|at|in|level|\.|$))/gi,
-        /(?:learned?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell[:\s]+([a-z0-9\s\-']+?)(?:\s+(?:from|at|in|level|\.|$))/gi
+        /you\s+(?:learn(?:ed)?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell\s+([a-z][a-z0-9\s\-']*[a-z0-9])/gi,
+        /(?:learned?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell[:\s]+([a-z][a-z0-9\s\-']*[a-z0-9])/gi
     ];
+
+    console.log('[Skill Check] detectSpellLearning called with text:', text.substring(0, 200));
 
     for (const pattern of patterns) {
         let match;
+        // Reset lastIndex for global regex
+        pattern.lastIndex = 0;
         while ((match = pattern.exec(text)) !== null) {
             const spellName = match[1].trim();
+            console.log(`[Skill Check] Spell regex matched: "${match[0]}", captured: "${spellName}"`);
             // Skip very short or very long spell names
             if (spellName.length > 2 && spellName.length < 50) {
                 spells.push(spellName);
+                console.log(`[Skill Check] ✓ Detected spell: "${spellName}"`);
             }
         }
     }
 
+    console.log(`[Skill Check] detectSpellLearning found ${spells.length} spell(s)`);
     return spells;
 }
 
@@ -992,12 +1036,13 @@ function buildCharacterSheetPrompt() {
 function updateCharacterSheetPrompt() {
     const settings = extension_settings[extensionName];
 
-    // Check if setExtensionPrompt is available
-    if (typeof window.setExtensionPrompt === 'function') {
+    // Get setExtensionPrompt from the context API
+    const context = getContext();
+    if (context && typeof context.setExtensionPrompt === 'function') {
         const promptText = buildCharacterSheetPrompt();
 
         // Register the prompt with identifier and position
-        window.setExtensionPrompt(
+        context.setExtensionPrompt(
             extensionName,           // identifier
             promptText,              // prompt text
             2,                       // position: 2 = AFTER_CHAR (after character definitions)
