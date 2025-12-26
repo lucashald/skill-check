@@ -1027,7 +1027,7 @@ function buildCharacterSheetPrompt() {
     }
 
     prompt += '---END CHARACTER SHEET---\n';
-    prompt += 'Note: This is the player character\'s current status. Do not narrate or mention this sheet directly unless the player asks about their stats. Use this information to inform your responses about the character\'s capabilities.';
+    prompt += 'Note: This is the player character\'s current status. Do not narrate or mention this sheet directly unless the player asks about their stats. Use this information to inform your responses about the character\'s capabilities. When the user adds or removes an item from their inventory, you must explicitly state Added to Inventory or Removed from Inventory. When the player learns a spell, you must explicitly state You Learn the Spell.';
 
     return prompt;
 }
@@ -1510,7 +1510,7 @@ function openCharacterSheet(scrollPosition = 0) {
 
                     <div class="skill-check-popup-section">
                         <button id="skill-check-reset-defaults" class="menu_button">
-                            <i class="fa-solid fa-rotate-left"></i> Reset to Defaults
+                            <i class="fa-solid fa-rotate-left"></i> Reset
                         </button>
                     </div>
                 </div>
@@ -1822,13 +1822,18 @@ function openCharacterSheet(scrollPosition = 0) {
 
     // Reset to defaults handler
     popup.find('#skill-check-reset-defaults').on('click', function() {
-        if (confirm('Reset all stats and difficulty to default values?')) {
+        if (confirm('Reset character sheet? This will clear stats, level, inventory, and spells.')) {
             settings.stats = { ...defaultSettings.stats };
             settings.statNames = { ...defaultSettings.statNames };
             settings.difficulty = defaultSettings.difficulty;
+            settings.level = 1;
+            settings.pendingLevelUps = 0;
+            settings.inventory = [];
+            settings.spells = [];
             saveSettingsDebounced();
             updateStatButtonLabels();
             loadSettingsUI();
+            updateCharacterSheetPrompt();
             const scrollPos = popup.find('.skill-check-popup').scrollTop();
             popup.remove();
             openCharacterSheet(scrollPos); // Reopen with fresh values
