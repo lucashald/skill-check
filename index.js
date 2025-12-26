@@ -592,17 +592,21 @@ function checkForLevelUp() {
 // Detect inventory additions (returns array of { name, quantity })
 function detectInventoryAdditions(text) {
     const additions = [];
-    // Pattern: "added to inventory" or "added X to inventory" or "gained X"
+    // Pattern: Only match "X added to inventory" or "add/added X to inventory"
     const patterns = [
-        /added?\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+to\s+(?:your\s+)?inventory/gi,
-        /(?:gained?|obtained?|received?|found?|acquired?)\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)(?:\s+(?:from|in|at|near)|\.|$)/gi
+        // "add/added X to inventory" or "add/added to inventory"
+        /add(?:ed|s)?\s+(?:the\s+)?(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+to\s+(?:your\s+)?inventory/gi,
+        // "X added to inventory"
+        /(?:(\d+)\s+)?(?:the\s+)?([a-z0-9\s\-']+?)\s+add(?:ed|s)?\s+to\s+(?:your\s+)?inventory/gi
     ];
 
     for (const pattern of patterns) {
         let match;
         while ((match = pattern.exec(text)) !== null) {
             const quantity = match[1] ? parseInt(match[1]) : 1;
-            const itemName = match[2].trim();
+            let itemName = match[2].trim();
+            // Remove articles "the", "a", "an" from the beginning
+            itemName = itemName.replace(/^(?:the|an?)\s+/i, '');
             // Skip very short or very long item names
             if (itemName.length > 2 && itemName.length < 50) {
                 additions.push({ name: itemName, quantity });
@@ -616,17 +620,21 @@ function detectInventoryAdditions(text) {
 // Detect inventory removals (returns array of { name, quantity })
 function detectInventoryRemovals(text) {
     const removals = [];
-    // Pattern: "removed from inventory" or "removed X from inventory" or "lost X"
+    // Pattern: Only match "X removed from inventory" or "remove/removed X from inventory"
     const patterns = [
-        /removed?\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+from\s+(?:your\s+)?inventory/gi,
-        /(?:lost|dropped?|consumed?|used?)\s+(?:(\d+)\s+)?([a-z0-9\s\-']+?)(?:\s+(?:from|in|at|near)|\.|$)/gi
+        // "remove/removed X from inventory" or "remove/removed from inventory"
+        /remove(?:d|s)?\s+(?:the\s+)?(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+from\s+(?:your\s+)?inventory/gi,
+        // "X removed from inventory"
+        /(?:(\d+)\s+)?(?:the\s+)?([a-z0-9\s\-']+?)\s+remove(?:d|s)?\s+from\s+(?:your\s+)?inventory/gi
     ];
 
     for (const pattern of patterns) {
         let match;
         while ((match = pattern.exec(text)) !== null) {
             const quantity = match[1] ? parseInt(match[1]) : 1;
-            const itemName = match[2].trim();
+            let itemName = match[2].trim();
+            // Remove articles "the", "a", "an" from the beginning
+            itemName = itemName.replace(/^(?:the|an?)\s+/i, '');
             // Skip very short or very long item names
             if (itemName.length > 2 && itemName.length < 50) {
                 removals.push({ name: itemName, quantity });
