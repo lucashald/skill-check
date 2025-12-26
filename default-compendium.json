@@ -1,28 +1,28 @@
 {
   "name": "Default Compendium",
-  "version": "1.0",
+  "version": "2.0",
   "entries": [
-    {
-      "id": "goblin",
-      "name": "Goblin",
-      "type": "monster",
-      "keywords": ["goblin", "goblins"],
-      "difficulties": {
-        "STR": 10,
-        "DEX": 14,
-        "CON": 10,
-        "INT": 8,
-        "WIS": 12,
-        "CHA": 8
-      },
-      "notes": "Weak but agile. Easy to overpower, hard to catch."
-    },
     {
       "id": "dragon",
       "name": "Dragon",
       "type": "monster",
-      "keywords": ["ancient dragon", "elder dragon", "wyrm", "dragon", "dragons"],
-      "difficulties": {
+      "require_modifier": false,
+      "stickiness": 15,
+      "detection": {
+        "nouns": ["dragon", "dragons", "wyrm"],
+        "action_verbs": ["attack", "fight", "strike", "charge", "evade", "dodge", "confront", "engage", "battle"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["young", "juvenile", "wounded", "dying", "weak", "small"],
+            "difficulty_adjust": -6
+          },
+          "hard": {
+            "keywords": ["ancient", "elder", "legendary", "enormous", "colossal", "great"],
+            "difficulty_adjust": 8
+          }
+        }
+      },
+      "base_difficulties": {
         "STR": 22,
         "DEX": 18,
         "CON": 24,
@@ -33,44 +33,94 @@
       "notes": "Near impossible without legendary equipment or allies."
     },
     {
+      "id": "goblin",
+      "name": "Goblin",
+      "type": "monster",
+      "require_modifier": false,
+      "stickiness": 10,
+      "detection": {
+        "nouns": ["goblin", "goblins"],
+        "action_verbs": ["attack", "fight", "strike", "shoot", "stab", "slash", "engage"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["small", "weak", "young", "injured"],
+            "difficulty_adjust": -3
+          },
+          "hard": {
+            "keywords": ["chief", "leader", "elite", "armored"],
+            "difficulty_adjust": 4
+          }
+        }
+      },
+      "base_difficulties": {
+        "STR": 10,
+        "DEX": 14,
+        "CON": 10,
+        "INT": 8,
+        "WIS": 12,
+        "CHA": 8
+      },
+      "notes": "Weak but agile. Easy to overpower, hard to catch."
+    },
+    {
       "id": "lock",
       "name": "Lock",
       "type": "obstacle",
-      "keywords": ["lock", "locked"],
-      "difficulties": {
+      "require_modifier": true,
+      "stickiness": 20,
+      "detection": {
+        "nouns": ["lock", "locks", "locked"],
+        "action_verbs": ["pick", "unlock", "open", "force", "break", "bypass"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["rusty", "old", "simple", "basic", "cheap", "worn", "broken"],
+            "difficulty_adjust": -4
+          },
+          "hard": {
+            "keywords": ["complex", "intricate", "masterwork", "heavy", "reinforced", "vault", "magical", "enchanted"],
+            "difficulty_adjust": 6
+          }
+        }
+      },
+      "base_difficulties": {
         "DEX": 14,
         "INT": 12
       },
+      "exclude_patterns": [
+        "lock eyes",
+        "lock gaze",
+        "locked in",
+        "lock you into",
+        "lock your",
+        "lock fingers",
+        "locks engaging",
+        "airlock",
+        "deadlock",
+        "gridlock"
+      ],
       "notes": "A standard lock."
-    },
-    {
-      "id": "simple_lock",
-      "name": "Simple Lock",
-      "type": "obstacle",
-      "keywords": ["simple lock", "basic lock", "cheap lock", "old lock", "rusty lock"],
-      "difficulties": {
-        "DEX": 10,
-        "INT": 8
-      },
-      "notes": "Trivial for trained rogues."
-    },
-    {
-      "id": "masterwork_lock",
-      "name": "Masterwork Lock",
-      "type": "obstacle",
-      "keywords": ["masterwork lock", "complex lock", "intricate lock", "vault lock", "vault"],
-      "difficulties": {
-        "DEX": 20,
-        "INT": 18
-      },
-      "notes": "Requires exceptional skill or clever thinking."
     },
     {
       "id": "guard",
       "name": "Guard",
       "type": "npc",
-      "keywords": ["elite guard", "palace guard", "city guard", "town guard", "guard", "guards", "city watch", "watchman"],
-      "difficulties": {
+      "require_modifier": false,
+      "stickiness": 15,
+      "detection": {
+        "nouns": ["guard", "guards", "watchman", "watchmen", "sentry", "sentries"],
+        "action_verbs": ["bribe", "persuade", "intimidate", "deceive", "sneak past", "fight", "attack", "distract"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["sleepy", "drunk", "lazy", "inattentive", "rookie", "new"],
+            "difficulty_adjust": -4
+          },
+          "hard": {
+            "keywords": ["elite", "palace", "veteran", "alert", "vigilant", "trained"],
+            "difficulty_adjust": 5
+          }
+        }
+      },
+      "base_difficulties": {
         "STR": 14,
         "DEX": 12,
         "CON": 14,
@@ -78,14 +128,38 @@
         "WIS": 12,
         "CHA": 12
       },
+      "exclude_patterns": [
+        "rear guard",
+        "on guard",
+        "off guard",
+        "guard stance",
+        "low guard",
+        "high guard",
+        "body guard"
+      ],
       "notes": "Trained but not elite. Can be talked down or outrun."
     },
     {
       "id": "merchant",
       "name": "Merchant",
       "type": "npc",
-      "keywords": ["merchant", "shopkeeper", "trader", "vendor", "shop"],
-      "difficulties": {
+      "require_modifier": false,
+      "stickiness": 15,
+      "detection": {
+        "nouns": ["merchant", "shopkeeper", "trader", "vendor"],
+        "action_verbs": ["haggle", "barter", "negotiate", "persuade", "deceive", "intimidate", "charm"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["desperate", "naive", "friendly", "generous"],
+            "difficulty_adjust": -3
+          },
+          "hard": {
+            "keywords": ["shrewd", "experienced", "cunning", "greedy"],
+            "difficulty_adjust": 4
+          }
+        }
+      },
+      "base_difficulties": {
         "INT": 14,
         "WIS": 14,
         "CHA": 16
@@ -96,8 +170,23 @@
       "id": "cliff",
       "name": "Cliff",
       "type": "obstacle",
-      "keywords": ["cliff", "climb", "climbing", "rock face", "precipice", "ledge", "wall"],
-      "difficulties": {
+      "require_modifier": false,
+      "stickiness": 20,
+      "detection": {
+        "nouns": ["cliff", "rock face", "precipice", "ledge", "wall"],
+        "action_verbs": ["climb", "scale", "ascend", "descend", "rappel"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["small", "short", "gentle", "rough", "handholds"],
+            "difficulty_adjust": -4
+          },
+          "hard": {
+            "keywords": ["sheer", "smooth", "slippery", "tall", "wet", "icy"],
+            "difficulty_adjust": 6
+          }
+        }
+      },
+      "base_difficulties": {
         "STR": 14,
         "DEX": 12,
         "CON": 14
@@ -108,8 +197,23 @@
       "id": "trap",
       "name": "Trap",
       "type": "trap",
-      "keywords": ["poison trap", "dart trap", "pit trap", "spike trap", "fire trap", "trap", "trapped", "tripwire", "snare"],
-      "difficulties": {
+      "require_modifier": false,
+      "stickiness": 15,
+      "detection": {
+        "nouns": ["trap", "traps", "trapped", "tripwire", "snare"],
+        "action_verbs": ["disarm", "disable", "avoid", "spot", "detect", "bypass"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["simple", "crude", "obvious", "old"],
+            "difficulty_adjust": -4
+          },
+          "hard": {
+            "keywords": ["hidden", "complex", "magical", "deadly", "poison"],
+            "difficulty_adjust": 5
+          }
+        }
+      },
+      "base_difficulties": {
         "DEX": 16,
         "INT": 14,
         "WIS": 14
@@ -120,8 +224,23 @@
       "id": "door",
       "name": "Door",
       "type": "obstacle",
-      "keywords": ["reinforced door", "iron door", "wooden door", "heavy door", "door", "gate", "barred"],
-      "difficulties": {
+      "require_modifier": false,
+      "stickiness": 20,
+      "detection": {
+        "nouns": ["door", "gate", "gates"],
+        "action_verbs": ["break", "force", "bash", "ram", "smash", "kick"],
+        "modifiers": {
+          "easy": {
+            "keywords": ["wooden", "old", "rotted", "weak", "damaged"],
+            "difficulty_adjust": -4
+          },
+          "hard": {
+            "keywords": ["reinforced", "iron", "steel", "heavy", "barred", "fortified"],
+            "difficulty_adjust": 6
+          }
+        }
+      },
+      "base_difficulties": {
         "STR": 16,
         "DEX": 12
       },

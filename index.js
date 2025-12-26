@@ -140,24 +140,27 @@ function getRecentContext(messageCount = 5) {
     return [];
 }
 
-// Scan messages for challenge keywords with recency weighting
+// Active challenges array - persists across detection calls
+let activeChallenges = [];
+
+// PHASE 1: Passive context scanning - scan AI messages for challenge nouns + modifiers
 // messages: array of message objects (oldest first, newest last)
-function scanForChallenges(messages) {
+function scanForActiveChallenges(messages, currentMessageIndex) {
     if (!Array.isArray(messages)) {
-        console.warn('[Skill Check] scanForChallenges received non-array:', typeof messages);
+        console.warn('[Skill Check] scanForActiveChallenges received non-array:', typeof messages);
         return [];
     }
 
-    console.log('[Skill Check] scanForChallenges called with', messages.length, 'messages');
-    console.log('[Skill Check] Loaded compendiums count:', loadedCompendiums.length);
+    console.log('[Skill Check] ===== PHASE 1: PASSIVE CONTEXT SCANNING =====');
+    console.log('[Skill Check] Scanning', messages.length, 'messages for challenge nouns + modifiers');
+    console.log('[Skill Check] Current message index:', currentMessageIndex);
 
-    const matches = [];
+    const newChallenges = [];
 
     // Scan each message (reverse order so newest is checked first)
     for (let msgIndex = messages.length - 1; msgIndex >= 0; msgIndex--) {
         const message = messages[msgIndex];
         const lowerText = (message.mes || '').toLowerCase();
-        const recencyBonus = (messages.length - msgIndex) * 100; // Newer = higher bonus
 
         console.log(`[Skill Check] Scanning message ${msgIndex}:`, lowerText.substring(0, 100));
 
@@ -165,22 +168,67 @@ function scanForChallenges(messages) {
             if (!compendium._enabled) continue;
 
             for (const entry of compendium.entries) {
-                // Skip if we already matched this entry in a newer message
-                if (matches.find(m => m.entry.id === entry.id)) continue;
+                // Skip if we already found this challenge in a newer message
+                if (newChallenges.find(c => c.entry.id === entry.id)) continue;
 
-                for (const keyword of entry.keywords) {
-                    // Use word boundaries to match complete words only (prevents "ledge" matching "knowledge")
-                    const escapedKeyword = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+                // Skip entries without new detection format
+                if (!entry.detection || !entry.detection.nouns) {
+                    console.log(`[Skill Check] Entry "${entry.name}" missing detection config, skipping`);
+                    continue;
+                }
+
+                // Check exclusion patterns first
+                let excluded = false;
+                if (entry.exclude_patterns) {
+                    for (const pattern of entry.exclude_patterns) {
+                        if (lowerText.includes(pattern.toLowerCase())) {
+                            console.log(`[Skill Check] ✗ Excluded "${entry.name}" due to pattern: "${pattern}"`);
+                            excluded = true;
+                            break;
+                        }
+                    }
+                }
+                if (excluded) continue;
+
+                // Check for challenge nouns
+                for (const noun of entry.detection.nouns) {
+                    const escapedNoun = noun.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escapedNoun}\\b`, 'i');
+
                     if (regex.test(lowerText)) {
-                        console.log(`[Skill Check] ✓ Matched keyword "${keyword}" in entry "${entry.name}" (message ${msgIndex}, recency bonus: ${recencyBonus})`);
-                        matches.push({
+                        console.log(`[Skill Check] ✓ Found noun "${noun}" for entry "${entry.name}" in message ${msgIndex}`);
+
+                        // Scan for modifiers near this noun
+                        const modifiers = [];
+                        if (entry.detection.modifiers) {
+                            for (const [level, modData] of Object.entries(entry.detection.modifiers)) {
+                                for (const keyword of modData.keywords) {
+                                    if (lowerText.includes(keyword.toLowerCase())) {
+                                        console.log(`[Skill Check]   ✓ Found ${level} modifier: "${keyword}" (adjust: ${modData.difficulty_adjust})`);
+                                        modifiers.push({
+                                            level: level,
+                                            keyword: keyword,
+                                            adjust: modData.difficulty_adjust
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        // Calculate stickiness
+                        const stickiness = entry.stickiness || 15;
+
+                        newChallenges.push({
                             entry: entry,
-                            keyword: keyword,
-                            compendium: compendium.name,
-                            messageIndex: msgIndex,
-                            priority: keyword.length + recencyBonus // Longer keyword + recency
+                            noun: noun,
+                            modifiers: modifiers,
+                            firstDetectedInMessage: msgIndex,
+                            lastMentionedInMessage: msgIndex,
+                            stickinessRemaining: stickiness,
+                            maxStickiness: stickiness
                         });
+
+                        console.log(`[Skill Check]   Added challenge: "${entry.name}" with ${modifiers.length} modifier(s), stickiness: ${stickiness}`);
                         break; // One match per entry is enough
                     }
                 }
@@ -188,13 +236,149 @@ function scanForChallenges(messages) {
         }
     }
 
-    // Sort by priority — prefer newer and more specific matches
-    matches.sort((a, b) => b.priority - a.priority);
-    console.log(`[Skill Check] scanForChallenges found ${matches.length} matches`);
-    if (matches.length > 0) {
-        console.log('[Skill Check] Top match:', matches[0].keyword, 'from message', matches[0].messageIndex, 'priority:', matches[0].priority);
+    // Update active challenges array with decay and refresh
+    console.log('[Skill Check] Updating active challenges array...');
+    console.log('[Skill Check] Previous active challenges:', activeChallenges.length);
+
+    // Decay existing challenges
+    for (const challenge of activeChallenges) {
+        challenge.stickinessRemaining--;
+        console.log(`[Skill Check]   Decaying "${challenge.entry.name}": stickiness ${challenge.stickinessRemaining}/${challenge.maxStickiness}`);
     }
-    return matches;
+
+    // Remove expired challenges
+    activeChallenges = activeChallenges.filter(c => c.stickinessRemaining > 0);
+
+    // Merge new challenges with existing ones
+    for (const newChallenge of newChallenges) {
+        const existing = activeChallenges.find(c => c.entry.id === newChallenge.entry.id);
+        if (existing) {
+            // Refresh existing challenge
+            console.log(`[Skill Check]   Refreshing "${newChallenge.entry.name}"`);
+            existing.lastMentionedInMessage = newChallenge.lastMentionedInMessage;
+            existing.stickinessRemaining = existing.maxStickiness; // Reset to max
+
+            // Update modifiers if new ones found
+            if (newChallenge.modifiers.length > 0) {
+                existing.modifiers = newChallenge.modifiers;
+                console.log(`[Skill Check]     Updated modifiers: ${existing.modifiers.map(m => m.keyword).join(', ')}`);
+            }
+        } else {
+            // Add new challenge
+            console.log(`[Skill Check]   Adding new challenge: "${newChallenge.entry.name}"`);
+            activeChallenges.push(newChallenge);
+        }
+    }
+
+    console.log('[Skill Check] Active challenges after update:', activeChallenges.length);
+    console.log('[Skill Check] ===== ACTIVE CHALLENGES ARRAY =====');
+    for (const challenge of activeChallenges) {
+        const modStr = challenge.modifiers.map(m => `${m.keyword}(${m.adjust})`).join(', ');
+        console.log(`[Skill Check]   - ${challenge.entry.name}: [${challenge.noun}] mods:[${modStr}] sticky:${challenge.stickinessRemaining}/${challenge.maxStickiness}`);
+    }
+    console.log('[Skill Check] ===== END ACTIVE CHALLENGES =====');
+
+    return activeChallenges;
+}
+
+// PHASE 2: Active action detection - check user message for action verbs + nouns
+function detectActionAgainstChallenges(userMessage, challenges) {
+    console.log('[Skill Check] ===== PHASE 2: ACTIVE ACTION DETECTION =====');
+    console.log('[Skill Check] User message:', userMessage.substring(0, 200));
+    console.log('[Skill Check] Checking against', challenges.length, 'active challenges');
+
+    const lowerText = userMessage.toLowerCase();
+
+    for (const challenge of challenges) {
+        const entry = challenge.entry;
+
+        if (!entry.detection || !entry.detection.action_verbs) {
+            console.log(`[Skill Check] Challenge "${entry.name}" missing action_verbs, skipping`);
+            continue;
+        }
+
+        // Check for action verbs
+        let foundVerb = null;
+        for (const verb of entry.detection.action_verbs) {
+            const escapedVerb = verb.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`\\b${escapedVerb}\\b`, 'i');
+            if (regex.test(lowerText)) {
+                foundVerb = verb;
+                console.log(`[Skill Check] ✓ Found action verb: "${verb}" for "${entry.name}"`);
+                break;
+            }
+        }
+
+        if (!foundVerb) {
+            console.log(`[Skill Check] ✗ No action verb found for "${entry.name}"`);
+            continue;
+        }
+
+        // Check for challenge noun in user message
+        let foundNoun = false;
+        for (const noun of entry.detection.nouns) {
+            const escapedNoun = noun.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`\\b${escapedNoun}\\b`, 'i');
+            if (regex.test(lowerText)) {
+                foundNoun = true;
+                console.log(`[Skill Check] ✓ Found noun: "${noun}" for "${entry.name}"`);
+                break;
+            }
+        }
+
+        if (!foundNoun) {
+            console.log(`[Skill Check] ✗ No noun found for "${entry.name}"`);
+            continue;
+        }
+
+        // We have a match! Check if modifiers are required
+        const requireModifier = entry.require_modifier || false;
+        const hasModifiers = challenge.modifiers.length > 0;
+
+        console.log(`[Skill Check] ✓✓✓ MATCH: "${entry.name}" - verb:"${foundVerb}" noun:"${challenge.noun}"`);
+        console.log(`[Skill Check]     require_modifier: ${requireModifier}, has_modifiers: ${hasModifiers}`);
+
+        if (requireModifier && !hasModifiers) {
+            console.log(`[Skill Check]     ⚠ Entry requires modifier but none found - using default difficulty`);
+            return {
+                matched: false,
+                entry: entry,
+                reason: 'requires_modifier'
+            };
+        }
+
+        // Calculate final difficulties
+        const baseDifficulties = entry.base_difficulties || {};
+        const finalDifficulties = { ...baseDifficulties };
+
+        // Apply strongest modifier
+        if (challenge.modifiers.length > 0) {
+            const strongest = challenge.modifiers.reduce((prev, current) => {
+                return Math.abs(current.adjust) > Math.abs(prev.adjust) ? current : prev;
+            });
+
+            console.log(`[Skill Check]     Applying strongest modifier: ${strongest.keyword} (${strongest.adjust})`);
+
+            for (const stat in finalDifficulties) {
+                finalDifficulties[stat] += strongest.adjust;
+            }
+        }
+
+        console.log(`[Skill Check]     Final difficulties:`, finalDifficulties);
+
+        return {
+            matched: true,
+            entry: entry,
+            difficulties: finalDifficulties,
+            modifiers: challenge.modifiers,
+            source: entry.name + (challenge.modifiers.length > 0
+                ? ` (${challenge.modifiers.map(m => m.keyword).join(', ')})`
+                : '')
+        };
+    }
+
+    console.log('[Skill Check] ✗ No matching challenge found for user action');
+    return { matched: false };
 }
 
 // Capitalize a keyword for display (e.g., "pit trap" → "Pit Trap")
@@ -226,12 +410,14 @@ function getActiveDifficulty(statDisplayName) {
         for (const compendium of loadedCompendiums) {
             const entry = compendium.entries.find(e => e.id === settings.manualChallenge);
             if (entry) {
-                const entryDifficulty = entry.difficulties[statDisplayName.toUpperCase()];
+                // Use base_difficulties for new format, fallback to difficulties for old format
+                const difficulties = entry.base_difficulties || entry.difficulties || {};
+                const entryDifficulty = difficulties[statDisplayName.toUpperCase()];
                 if (entryDifficulty !== undefined) {
                     console.log('[Skill Check] Using manual override:', entry.name, 'DC', entryDifficulty);
                     return {
                         difficulty: entryDifficulty,
-                        source: entry.name, // Manual override uses entry name
+                        source: entry.name,
                         notes: entry.notes,
                         entry: entry
                     };
@@ -240,42 +426,40 @@ function getActiveDifficulty(statDisplayName) {
         }
     }
 
-    // Auto-detect from context
-    console.log('[Skill Check] Auto-detecting challenge from context...');
+    // Auto-detect using new two-phase system
+    console.log('[Skill Check] Auto-detecting challenge using two-phase system...');
     const recentMessages = getRecentContext(settings.contextMessages || 5);
 
-    // IMPORTANT: Also scan the current unsent message in the textarea
+    // Get current unsent user message
     const textarea = document.getElementById('send_textarea');
+    let userMessage = '';
     if (textarea && textarea.value.trim()) {
-        const currentMessage = {
-            mes: textarea.value.trim(),
-            is_user: true
-        };
-        console.log('[Skill Check] Including current unsent message:', currentMessage.mes.substring(0, 100));
-        // Add current message as the most recent (highest priority)
-        recentMessages.push(currentMessage);
+        userMessage = textarea.value.trim();
+        console.log('[Skill Check] User message from textarea:', userMessage.substring(0, 100));
     }
 
-    const matches = scanForChallenges(recentMessages);
+    // PHASE 1: Scan context for challenge nouns + modifiers
+    const context = getContext();
+    const currentMessageIndex = context && context.chat ? context.chat.length : 0;
+    scanForActiveChallenges(recentMessages, currentMessageIndex);
 
-    if (matches.length > 0) {
-        console.log('[Skill Check] Found', matches.length, 'matches');
-        // Find best match that has a difficulty for this stat
-        for (const match of matches) {
-            const entryDifficulty = match.entry.difficulties[statDisplayName.toUpperCase()];
-            console.log(`[Skill Check] Checking match "${match.keyword}" for ${statDisplayName} difficulty:`, entryDifficulty);
+    // PHASE 2: Check if user message contains action against active challenges
+    if (userMessage) {
+        const actionResult = detectActionAgainstChallenges(userMessage, activeChallenges);
+
+        if (actionResult.matched) {
+            // Get difficulty for this stat
+            const entryDifficulty = actionResult.difficulties[statDisplayName.toUpperCase()];
             if (entryDifficulty !== undefined) {
-                console.log('[Skill Check] ✓ Using detected challenge:', capitalizeKeyword(match.keyword), 'DC', entryDifficulty);
+                console.log('[Skill Check] ✓ Using detected challenge:', actionResult.source, 'DC', entryDifficulty);
                 return {
                     difficulty: entryDifficulty,
-                    source: capitalizeKeyword(match.keyword), // Use matched keyword, not entry name
-                    notes: match.entry.notes,
-                    entry: match.entry
+                    source: actionResult.source,
+                    notes: actionResult.entry.notes,
+                    entry: actionResult.entry
                 };
             }
         }
-    } else {
-        console.log('[Skill Check] No matches found');
     }
 
     // Fall back to default difficulty
@@ -290,9 +474,8 @@ function getActiveDifficulty(statDisplayName) {
 
 // Get all current challenge matches for display
 function getCurrentChallengeMatches() {
-    const settings = extension_settings[extensionName];
-    const recentMessages = getRecentContext(settings.contextMessages || 5);
-    return scanForChallenges(recentMessages);
+    // Return the active challenges array
+    return activeChallenges;
 }
 
 // Get display text for current detected challenge
@@ -312,20 +495,23 @@ function getCurrentChallengeDisplay() {
         }
     }
 
-    const matches = getCurrentChallengeMatches();
-    if (matches.length === 0) {
+    const challenges = getCurrentChallengeMatches();
+    if (challenges.length === 0) {
         return '<span class="challenge-none">None detected</span>';
     }
 
-    const best = matches[0];
-    const displayName = capitalizeKeyword(best.keyword); // Use matched keyword
-    const otherCount = matches.length - 1;
-    let html = `<span class="challenge-detected">${displayName}</span>`;
+    const best = challenges[0];
+    const displayName = best.entry.name;
+    const modStr = best.modifiers.map(m => m.keyword).join(', ');
+    const displayText = modStr ? `${modStr} ${displayName}` : displayName;
+
+    const otherCount = challenges.length - 1;
+    let html = `<span class="challenge-detected">${displayText}</span>`;
     if (best.entry.notes) {
         html += `<br><small class="challenge-notes">${best.entry.notes}</small>`;
     }
     if (otherCount > 0) {
-        html += `<br><small class="challenge-others">+${otherCount} other match${otherCount > 1 ? 'es' : ''}</small>`;
+        html += `<br><small class="challenge-others">+${otherCount} other challenge${otherCount > 1 ? 's' : ''}</small>`;
     }
     return html;
 }
