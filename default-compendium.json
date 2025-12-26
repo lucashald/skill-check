@@ -10,7 +10,7 @@
       "stickiness": 15,
       "detection": {
         "nouns": ["dragon", "dragons", "wyrm"],
-        "action_verbs": ["attack", "fight", "strike", "charge", "evade", "dodge", "confront", "engage", "battle"],
+        "action_verbs": ["attack", "fight", "strike", "charge", "evade", "dodge", "confront", "engage", "battle", "run", "flee", "escape", "run away", "run from"],
         "modifiers": {
           "easy": {
             "keywords": ["young", "juvenile", "wounded", "dying", "weak", "small"],
@@ -40,7 +40,7 @@
       "stickiness": 10,
       "detection": {
         "nouns": ["goblin", "goblins"],
-        "action_verbs": ["attack", "fight", "strike", "shoot", "stab", "slash", "engage"],
+        "action_verbs": ["attack", "fight", "strike", "shoot", "stab", "slash", "engage", "run", "flee", "escape", "evade", "dodge", "run away", "run from"],
         "modifiers": {
           "easy": {
             "keywords": ["small", "weak", "young", "injured"],
@@ -174,7 +174,7 @@
       "stickiness": 20,
       "detection": {
         "nouns": ["cliff", "rock face", "precipice", "ledge", "wall"],
-        "action_verbs": ["climb", "scale", "ascend", "descend", "rappel"],
+        "action_verbs": ["climb", "scale", "ascend", "descend", "rappel", "climb up", "climb down", "go up", "go down"],
         "modifiers": {
           "easy": {
             "keywords": ["small", "short", "gentle", "rough", "handholds"],
@@ -201,7 +201,7 @@
       "stickiness": 15,
       "detection": {
         "nouns": ["trap", "traps", "trapped", "tripwire", "snare"],
-        "action_verbs": ["disarm", "disable", "avoid", "spot", "detect", "bypass"],
+        "action_verbs": ["disarm", "disable", "avoid", "spot", "detect", "bypass", "dodge", "evade", "jump over", "step over"],
         "modifiers": {
           "easy": {
             "keywords": ["simple", "crude", "obvious", "old"],

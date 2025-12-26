@@ -155,6 +155,8 @@ function scanForActiveChallenges(messages, currentMessageIndex) {
     console.log('[Skill Check] ===== PHASE 1: PASSIVE CONTEXT SCANNING =====');
     console.log('[Skill Check] Scanning', messages.length, 'messages for challenge nouns + modifiers');
     console.log('[Skill Check] Current message index:', currentMessageIndex);
+    console.log('[Skill Check] Loaded compendiums count:', loadedCompendiums.length);
+    console.log('[Skill Check] Enabled compendiums:', loadedCompendiums.filter(c => c._enabled).map(c => c.name).join(', '));
 
     const newChallenges = [];
 
@@ -166,7 +168,11 @@ function scanForActiveChallenges(messages, currentMessageIndex) {
         console.log(`[Skill Check] Scanning message ${msgIndex}:`, lowerText.substring(0, 100));
 
         for (const compendium of loadedCompendiums) {
-            if (!compendium._enabled) continue;
+            console.log(`[Skill Check]   Checking compendium "${compendium.name}", enabled: ${compendium._enabled}, entries: ${compendium.entries.length}`);
+            if (!compendium._enabled) {
+                console.log(`[Skill Check]   Skipping disabled compendium "${compendium.name}"`);
+                continue;
+            }
 
             for (const entry of compendium.entries) {
                 // Skip if we already found this challenge in a newer message
