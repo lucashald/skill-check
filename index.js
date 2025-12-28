@@ -1119,16 +1119,16 @@ function rollD20() {
 
 // Determine outcome tier
 function determineOutcome(naturalRoll, total, difficulty) {
-    // Critical Failure: natural 1 OR total <= 5
-    if (naturalRoll === 1 || total <= 5) {
+    // Critical Failure: natural 1 OR fails by 4+
+    if (naturalRoll === 1 || total <= difficulty - 4) {
         return {
             tier: 'critical_failure',
             text: 'FAILED BADLY. Narrate a serious setback, complication, or injury. Do not soften the failure. Do not speak for the user.'
         };
     }
 
-    // Strong Success: total >= 18 OR natural 20
-    if (total >= 18 || naturalRoll === 20) {
+    // Strong Success: exceeds difficulty by 4+ OR natural 20
+    if ((total >= difficulty + 4) || naturalRoll === 20) {
         return {
             tier: 'strong_success',
             text: 'SUCCEEDED EXCEPTIONALLY. Narrate an impressive, skillful, or lucky outcome. Do not speak for the user.'
@@ -1908,10 +1908,10 @@ function createSettingsPanel() {
 
                             <h4>Outcome Tiers</h4>
                             <ul>
-                                <li><strong>Critical Failure:</strong> Natural 1 OR total ≤ 5</li>
+                                <li><strong>Critical Failure:</strong> Natural 1 OR fails by 4+ (total ≤ difficulty - 4)</li>
                                 <li><strong>Failure:</strong> Total < difficulty</li>
                                 <li><strong>Success:</strong> Total ≥ difficulty</li>
-                                <li><strong>Strong Success:</strong> Total ≥ 18 OR natural 20</li>
+                                <li><strong>Strong Success:</strong> Exceeds by 4+ (total ≥ difficulty + 4) OR natural 20</li>
                             </ul>
                         </div>
                     </div>
