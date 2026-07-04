@@ -34,15 +34,14 @@ const defaultSettings = {
         stat5: 'WIS',
         stat6: 'CHA'
     },
-    difficulty: 12,
-    useCompendium: true,
-    contextMessages: 5,
-    manualChallenge: null, // null = auto-detect, or entry id for manual override
+    difficulty: 12, // Fallback DC when the AI hasn't declared one
+    useLlmDifficulty: true, // Use [SKILL DC: ...] tags declared by the AI in its messages
+    injectGmInstructions: true, // Teach the AI the tag protocol via an injected prompt
+    contextMessages: 5, // How many recent messages to search for a [SKILL DC] tag
+    nextRollDc: 0, // One-shot manual DC override for the next roll (0 = none)
     level: 1,
     pendingLevelUps: 0,
-    lastLevelUpMessageIndex: -1, // Track last message index where level-up was detected
-    levelUpMessageGap: 3, // Require this many AI messages before checking again
-    lastProcessedMessageIndex: -1, // Track last message index processed for inventory/spells
+    lastProcessedMessageIndex: -1, // Track last message index processed for tags
     inventory: [], // Array of { name: string, quantity: number }
     spells: [], // Array of { name: string }
     injectCharacterSheet: true, // Inject character sheet into context
@@ -52,67 +51,10 @@ const defaultSettings = {
 // Stats array for iteration (internal keys)
 const statKeys = ['stat1', 'stat2', 'stat3', 'stat4', 'stat5', 'stat6'];
 
-// Loaded compendiums storage
-let loadedCompendiums = [];
-
 // Get display name for a stat
 function getStatName(statKey) {
     const settings = extension_settings[extensionName];
     return settings?.statNames?.[statKey] || statKey.toUpperCase();
-}
-
-// List of available compendium files
-const compendiumFiles = [
-    'default-compendium.json',
-    'star-wars-compendium.json'
-];
-
-// Load compendiums from extension folder
-async function loadCompendiums() {
-    loadedCompendiums = [];
-    const settings = extension_settings[extensionName];
-
-    // Initialize compendium enabled states if not present
-    if (!settings.enabledCompendiums) {
-        settings.enabledCompendiums = {};
-    }
-
-    for (const filename of compendiumFiles) {
-        try {
-            const path = `/scripts/extensions/third-party/${extensionName}/${filename}`;
-            const response = await fetch(path);
-            if (response.ok) {
-                const compendium = await response.json();
-                compendium._filename = filename;
-                // Default to enabled for default compendium, disabled for others
-                if (settings.enabledCompendiums[filename] === undefined) {
-                    settings.enabledCompendiums[filename] = (filename === 'default-compendium.json');
-                }
-                compendium._enabled = settings.enabledCompendiums[filename];
-                loadedCompendiums.push(compendium);
-                console.log(`[Skill Check] Loaded compendium: ${compendium.name} (${compendium._enabled ? 'enabled' : 'disabled'})`);
-            }
-        } catch (error) {
-            console.warn(`[Skill Check] Could not load compendium ${filename}:`, error);
-        }
-    }
-
-    console.log('[Skill Check] Total compendiums loaded:', loadedCompendiums.length);
-    return loadedCompendiums;
-}
-
-// Toggle a compendium's enabled state
-function toggleCompendium(filename, enabled) {
-    const settings = extension_settings[extensionName];
-    settings.enabledCompendiums[filename] = enabled;
-
-    // Update the loaded compendium's state
-    const compendium = loadedCompendiums.find(c => c._filename === filename);
-    if (compendium) {
-        compendium._enabled = enabled;
-    }
-
-    saveSettingsDebounced();
 }
 
 // Get recent chat context for scanning
@@ -145,514 +87,131 @@ function getRecentContext(messageCount = 5) {
     return [];
 }
 
-// Active challenges array - persists across detection calls
-let activeChallenges = [];
+// ===== LLM-DECLARED DIFFICULTY (TAG PROTOCOL) =====
+// The AI declares challenge difficulty explicitly with tags in its messages:
+//   [SKILL DC: 15]                - one DC for the next check, any stat
+//   [SKILL DC: STR 18, DEX 12]    - per-stat DCs
+//   [SKILL DC: 15 | Rusty Lock]   - optional label after a pipe
+// "DC" without "SKILL" is also accepted.
+const DC_TAG_REGEX = /\[\s*(?:SKILL\s+)?DC\s*:\s*([^\]|]+?)(?:\s*\|\s*([^\]]+?))?\s*\]/gi;
 
-// PHASE 1: Passive context scanning - scan AI messages for challenge nouns + modifiers
-// messages: array of message objects (oldest first, newest last)
-function scanForActiveChallenges(messages, currentMessageIndex) {
-    if (!Array.isArray(messages)) {
-        console.warn('[Skill Check] scanForActiveChallenges received non-array:', typeof messages);
-        return [];
+// Parse the body of a DC tag. Returns { dcs, label } or null.
+// dcs is either { ANY: n } or a map of stat names to DCs, e.g. { STR: 18, DEX: 12 }.
+function parseDcTagBody(body, label) {
+    const trimmed = body.trim();
+
+    const flat = trimmed.match(/^(\d+)$/);
+    if (flat) {
+        return { dcs: { ANY: parseInt(flat[1]) }, label: label ? label.trim() : null };
     }
 
-    console.log('[Skill Check] ===== PHASE 1: PASSIVE CONTEXT SCANNING =====');
-    console.log('[Skill Check] Scanning', messages.length, 'messages for challenge nouns + modifiers');
-    console.log('[Skill Check] Current message index:', currentMessageIndex);
-    console.log('[Skill Check] Loaded compendiums count:', loadedCompendiums.length);
-    console.log('[Skill Check] Enabled compendiums:', loadedCompendiums.filter(c => c._enabled).map(c => c.name).join(', '));
-
-    const newChallenges = [];
-
-    // Scan each message (reverse order so newest is checked first)
-    for (let msgIndex = messages.length - 1; msgIndex >= 0; msgIndex--) {
-        const message = messages[msgIndex];
-        const lowerText = (message.mes || '').toLowerCase();
-
-        console.log(`[Skill Check] Scanning message ${msgIndex}:`, lowerText.substring(0, 100));
-
-        for (const compendium of loadedCompendiums) {
-            console.log(`[Skill Check]   Checking compendium "${compendium.name}", enabled: ${compendium._enabled}, entries: ${compendium.entries.length}`);
-            if (!compendium._enabled) {
-                console.log(`[Skill Check]   Skipping disabled compendium "${compendium.name}"`);
-                continue;
-            }
-
-            for (const entry of compendium.entries) {
-                // Skip if we already found this challenge in a newer message
-                if (newChallenges.find(c => c.entry.id === entry.id)) continue;
-
-                // Skip entries without new detection format
-                if (!entry.detection || !entry.detection.nouns) {
-                    console.log(`[Skill Check] Entry "${entry.name}" missing detection config, skipping`);
-                    continue;
-                }
-
-                // Check exclusion patterns first
-                let excluded = false;
-                if (entry.exclude_patterns) {
-                    for (const pattern of entry.exclude_patterns) {
-                        if (lowerText.includes(pattern.toLowerCase())) {
-                            console.log(`[Skill Check] ✗ Excluded "${entry.name}" due to pattern: "${pattern}"`);
-                            excluded = true;
-                            break;
-                        }
-                    }
-                }
-                if (excluded) continue;
-
-                // Check for challenge nouns
-                for (const noun of entry.detection.nouns) {
-                    const escapedNoun = noun.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`\\b${escapedNoun}\\b`, 'i');
-
-                    if (regex.test(lowerText)) {
-                        console.log(`[Skill Check] ✓ Found noun "${noun}" for entry "${entry.name}" in message ${msgIndex}`);
-
-                        // Scan for modifiers near this noun
-                        const modifiers = [];
-                        if (entry.detection.modifiers) {
-                            for (const [level, modData] of Object.entries(entry.detection.modifiers)) {
-                                for (const keyword of modData.keywords) {
-                                    if (lowerText.includes(keyword.toLowerCase())) {
-                                        console.log(`[Skill Check]   ✓ Found ${level} modifier: "${keyword}" (adjust: ${modData.difficulty_adjust})`);
-                                        modifiers.push({
-                                            level: level,
-                                            keyword: keyword,
-                                            adjust: modData.difficulty_adjust
-                                        });
-                                    }
-                                }
-                            }
-                        }
-
-                        // Calculate stickiness
-                        const stickiness = entry.stickiness || 15;
-
-                        newChallenges.push({
-                            entry: entry,
-                            noun: noun,
-                            modifiers: modifiers,
-                            firstDetectedInMessage: msgIndex,
-                            lastMentionedInMessage: msgIndex,
-                            stickinessRemaining: stickiness,
-                            maxStickiness: stickiness
-                        });
-
-                        console.log(`[Skill Check]   Added challenge: "${entry.name}" with ${modifiers.length} modifier(s), stickiness: ${stickiness}`);
-                        break; // One match per entry is enough
-                    }
-                }
-            }
-        }
+    const dcs = {};
+    for (const part of trimmed.split(',')) {
+        const m = part.trim().match(/^([A-Za-z]{1,6})\s+(\d+)$/);
+        if (!m) return null;
+        dcs[m[1].toUpperCase()] = parseInt(m[2]);
     }
 
-    // Update active challenges array with decay and refresh
-    console.log('[Skill Check] Updating active challenges array...');
-    console.log('[Skill Check] Previous active challenges:', activeChallenges.length);
-
-    // Decay existing challenges
-    for (const challenge of activeChallenges) {
-        challenge.stickinessRemaining--;
-        console.log(`[Skill Check]   Decaying "${challenge.entry.name}": stickiness ${challenge.stickinessRemaining}/${challenge.maxStickiness}`);
-    }
-
-    // Remove expired challenges
-    activeChallenges = activeChallenges.filter(c => c.stickinessRemaining > 0);
-
-    // Merge new challenges with existing ones
-    for (const newChallenge of newChallenges) {
-        const existing = activeChallenges.find(c => c.entry.id === newChallenge.entry.id);
-        if (existing) {
-            // Refresh existing challenge
-            console.log(`[Skill Check]   Refreshing "${newChallenge.entry.name}"`);
-            existing.lastMentionedInMessage = newChallenge.lastMentionedInMessage;
-            existing.stickinessRemaining = existing.maxStickiness; // Reset to max
-
-            // Update modifiers if new ones found
-            if (newChallenge.modifiers.length > 0) {
-                existing.modifiers = newChallenge.modifiers;
-                console.log(`[Skill Check]     Updated modifiers: ${existing.modifiers.map(m => m.keyword).join(', ')}`);
-            }
-        } else {
-            // Add new challenge
-            console.log(`[Skill Check]   Adding new challenge: "${newChallenge.entry.name}"`);
-            activeChallenges.push(newChallenge);
-        }
-    }
-
-    console.log('[Skill Check] Active challenges after update:', activeChallenges.length);
-    console.log('[Skill Check] ===== ACTIVE CHALLENGES ARRAY =====');
-    for (const challenge of activeChallenges) {
-        const modStr = challenge.modifiers.map(m => `${m.keyword}(${m.adjust})`).join(', ');
-        console.log(`[Skill Check]   - ${challenge.entry.name}: [${challenge.noun}] mods:[${modStr}] sticky:${challenge.stickinessRemaining}/${challenge.maxStickiness}`);
-    }
-    console.log('[Skill Check] ===== END ACTIVE CHALLENGES =====');
-
-    return activeChallenges;
+    return Object.keys(dcs).length > 0 ? { dcs, label: label ? label.trim() : null } : null;
 }
 
-// PHASE 2: Active action detection - check user message for action verbs + nouns
-function detectActionAgainstChallenges(userMessage, challenges) {
-    console.log('[Skill Check] ===== PHASE 2: ACTIVE ACTION DETECTION =====');
-    console.log('[Skill Check] User message:', userMessage.substring(0, 200));
-    console.log('[Skill Check] Checking against', challenges.length, 'active challenges');
+// Find the most recent DC tag in the given messages (newest message wins,
+// last tag within a message wins). Returns { dcs, label } or null.
+function findLatestDcTag(messages) {
+    if (!Array.isArray(messages)) return null;
 
-    const lowerText = userMessage.toLowerCase();
-
-    for (const challenge of challenges) {
-        const entry = challenge.entry;
-
-        if (!entry.detection || !entry.detection.action_verbs) {
-            console.log(`[Skill Check] Challenge "${entry.name}" missing action_verbs, skipping`);
-            continue;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const text = messages[i].mes || '';
+        let latest = null;
+        let match;
+        DC_TAG_REGEX.lastIndex = 0;
+        while ((match = DC_TAG_REGEX.exec(text)) !== null) {
+            const parsed = parseDcTagBody(match[1], match[2]);
+            if (parsed) latest = parsed;
         }
-
-        // Check for action verbs
-        let foundVerb = null;
-        for (const verb of entry.detection.action_verbs) {
-            const escapedVerb = verb.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\b${escapedVerb}\\b`, 'i');
-            if (regex.test(lowerText)) {
-                foundVerb = verb;
-                console.log(`[Skill Check] ✓ Found action verb: "${verb}" for "${entry.name}"`);
-                break;
-            }
+        if (latest) {
+            console.log(`[Skill Check] Found DC tag in message ${i}:`, latest);
+            return latest;
         }
-
-        if (!foundVerb) {
-            console.log(`[Skill Check] ✗ No action verb found for "${entry.name}"`);
-            continue;
-        }
-
-        // Check for challenge noun in user message
-        let foundNoun = false;
-        for (const noun of entry.detection.nouns) {
-            const escapedNoun = noun.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\b${escapedNoun}\\b`, 'i');
-            if (regex.test(lowerText)) {
-                foundNoun = true;
-                console.log(`[Skill Check] ✓ Found noun: "${noun}" for "${entry.name}"`);
-                break;
-            }
-        }
-
-        if (!foundNoun) {
-            console.log(`[Skill Check] ✗ No noun found for "${entry.name}"`);
-            continue;
-        }
-
-        // We have a match! Check if modifiers are required
-        const requireModifier = entry.require_modifier || false;
-        const hasModifiers = challenge.modifiers.length > 0;
-
-        console.log(`[Skill Check] ✓✓✓ MATCH: "${entry.name}" - verb:"${foundVerb}" noun:"${challenge.noun}"`);
-        console.log(`[Skill Check]     require_modifier: ${requireModifier}, has_modifiers: ${hasModifiers}`);
-
-        if (requireModifier && !hasModifiers) {
-            console.log(`[Skill Check]     ⚠ Entry requires modifier but none found - using default difficulty`);
-            return {
-                matched: false,
-                entry: entry,
-                reason: 'requires_modifier'
-            };
-        }
-
-        // Calculate final difficulties
-        const baseDifficulties = entry.base_difficulties || {};
-        const finalDifficulties = { ...baseDifficulties };
-
-        // Apply strongest modifier
-        if (challenge.modifiers.length > 0) {
-            const strongest = challenge.modifiers.reduce((prev, current) => {
-                return Math.abs(current.adjust) > Math.abs(prev.adjust) ? current : prev;
-            });
-
-            console.log(`[Skill Check]     Applying strongest modifier: ${strongest.keyword} (${strongest.adjust})`);
-
-            for (const stat in finalDifficulties) {
-                finalDifficulties[stat] += strongest.adjust;
-            }
-        }
-
-        console.log(`[Skill Check]     Final difficulties:`, finalDifficulties);
-
-        return {
-            matched: true,
-            entry: entry,
-            difficulties: finalDifficulties,
-            modifiers: challenge.modifiers,
-            source: entry.name + (challenge.modifiers.length > 0
-                ? ` (${challenge.modifiers.map(m => m.keyword).join(', ')})`
-                : '')
-        };
     }
 
-    console.log('[Skill Check] ✗ No matching challenge found for user action');
-    return { matched: false };
+    return null;
 }
 
-// Capitalize a keyword for display (e.g., "pit trap" → "Pit Trap")
-function capitalizeKeyword(keyword) {
-    return keyword.split(' ').map(word =>
-        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    ).join(' ');
-}
-
-// Get active difficulty for a stat based on context
+// Get active difficulty for a stat
 function getActiveDifficulty(statDisplayName) {
     console.log('[Skill Check] ===== getActiveDifficulty called for stat:', statDisplayName, '=====');
     const settings = extension_settings[extensionName];
 
-    // If compendium matching is disabled, use default
-    if (!settings.useCompendium) {
-        console.log('[Skill Check] Compendium matching disabled, using default difficulty:', settings.difficulty);
-        return {
-            difficulty: settings.difficulty,
-            source: null,
-            notes: null,
-            entry: null
-        };
+    // One-shot manual override for the next roll
+    if (settings.nextRollDc > 0) {
+        const dc = settings.nextRollDc;
+        settings.nextRollDc = 0; // Consumed
+        saveSettingsDebounced();
+        console.log('[Skill Check] Using one-shot manual DC override:', dc);
+        return { difficulty: dc, source: 'Manual DC' };
     }
 
-    // Check for manual override
-    if (settings.manualChallenge) {
-        console.log('[Skill Check] Manual challenge override set:', settings.manualChallenge);
-        for (const compendium of loadedCompendiums) {
-            const entry = compendium.entries.find(e => e.id === settings.manualChallenge);
-            if (entry) {
-                // Use base_difficulties for new format, fallback to difficulties for old format
-                const difficulties = entry.base_difficulties || entry.difficulties || {};
-                const entryDifficulty = difficulties[statDisplayName.toUpperCase()];
-                if (entryDifficulty !== undefined) {
-                    console.log('[Skill Check] Using manual override:', entry.name, 'DC', entryDifficulty);
-                    return {
-                        difficulty: entryDifficulty,
-                        source: entry.name,
-                        notes: entry.notes,
-                        entry: entry
-                    };
-                }
+    // AI-declared difficulty via [SKILL DC] tags
+    if (settings.useLlmDifficulty) {
+        const recentMessages = getRecentContext(settings.contextMessages || 5);
+        const tag = findLatestDcTag(recentMessages);
+        if (tag) {
+            const statDc = tag.dcs[statDisplayName.toUpperCase()];
+            const dc = statDc !== undefined ? statDc : tag.dcs.ANY;
+            if (dc !== undefined) {
+                const source = tag.label || 'AI-declared DC';
+                console.log('[Skill Check] Using AI-declared difficulty:', dc, 'source:', source);
+                return { difficulty: dc, source: source };
             }
-        }
-    }
-
-    // Auto-detect using new two-phase system
-    console.log('[Skill Check] Auto-detecting challenge using two-phase system...');
-    const recentMessages = getRecentContext(settings.contextMessages || 5);
-
-    // Get current unsent user message
-    const textarea = document.getElementById('send_textarea');
-    let userMessage = '';
-    if (textarea && textarea.value.trim()) {
-        userMessage = textarea.value.trim();
-        console.log('[Skill Check] User message from textarea:', userMessage.substring(0, 100));
-    }
-
-    // PHASE 1: Scan context for challenge nouns + modifiers
-    const context = getContext();
-    const currentMessageIndex = context && context.chat ? context.chat.length : 0;
-    scanForActiveChallenges(recentMessages, currentMessageIndex);
-
-    // PHASE 2: Check if user message contains action against active challenges
-    if (userMessage) {
-        const actionResult = detectActionAgainstChallenges(userMessage, activeChallenges);
-
-        if (actionResult.matched) {
-            // Get difficulty for this stat
-            const entryDifficulty = actionResult.difficulties[statDisplayName.toUpperCase()];
-            if (entryDifficulty !== undefined) {
-                console.log('[Skill Check] ✓ Using detected challenge:', actionResult.source, 'DC', entryDifficulty);
-                return {
-                    difficulty: entryDifficulty,
-                    source: actionResult.source,
-                    notes: actionResult.entry.notes,
-                    entry: actionResult.entry
-                };
-            }
+            console.log('[Skill Check] DC tag found but has no DC for', statDisplayName, '- falling back to default');
         }
     }
 
     // Fall back to default difficulty
     console.log('[Skill Check] Falling back to default difficulty:', settings.difficulty);
-    return {
-        difficulty: settings.difficulty,
-        source: null,
-        notes: null,
-        entry: null
-    };
+    return { difficulty: settings.difficulty, source: null };
 }
 
-// Get all current challenge matches for display
-function getCurrentChallengeMatches() {
-    // Return the active challenges array
-    return activeChallenges;
-}
-
-// Get display text for current detected challenge
+// Get display text for the currently declared challenge
 function getCurrentChallengeDisplay() {
     const settings = extension_settings[extensionName];
 
-    if (!settings.useCompendium) {
-        return '<span class="challenge-none">Compendium disabled</span>';
+    if (settings.nextRollDc > 0) {
+        return `<span class="challenge-manual">DC ${settings.nextRollDc}</span> <small>(manual, next roll only)</small>`;
     }
 
-    if (settings.manualChallenge) {
-        for (const compendium of loadedCompendiums) {
-            const entry = compendium.entries.find(e => e.id === settings.manualChallenge);
-            if (entry) {
-                return `<span class="challenge-manual">${entry.name}</span> <small>(manual)</small>`;
-            }
-        }
+    if (!settings.useLlmDifficulty) {
+        return '<span class="challenge-none">AI-declared DCs disabled</span>';
     }
 
-    const challenges = getCurrentChallengeMatches();
-    if (challenges.length === 0) {
-        return '<span class="challenge-none">None detected</span>';
+    const tag = findLatestDcTag(getRecentContext(settings.contextMessages || 5));
+    if (!tag) {
+        return '<span class="challenge-none">None declared</span>';
     }
 
-    const best = challenges[0];
-    const displayName = best.entry.name;
-    const modStr = best.modifiers.map(m => m.keyword).join(', ');
-    const displayText = modStr ? `${modStr} ${displayName}` : displayName;
-
-    const otherCount = challenges.length - 1;
-    let html = `<span class="challenge-detected">${displayText}</span>`;
-    if (best.entry.notes) {
-        html += `<br><small class="challenge-notes">${best.entry.notes}</small>`;
-    }
-    if (otherCount > 0) {
-        html += `<br><small class="challenge-others">+${otherCount} other challenge${otherCount > 1 ? 's' : ''}</small>`;
-    }
-    return html;
+    const dcText = tag.dcs.ANY !== undefined
+        ? `DC ${tag.dcs.ANY}`
+        : Object.entries(tag.dcs).map(([stat, dc]) => `${stat} ${dc}`).join(', ');
+    const labelText = tag.label ? `${tag.label} — ` : '';
+    return `<span class="challenge-detected">${labelText}${dcText}</span>`;
 }
 
-// Get all challenge options for manual override dropdown
-function getAllChallengeOptions(selectedId) {
-    let options = '';
-    for (const compendium of loadedCompendiums) {
-        if (!compendium._enabled) continue;
-
-        // Group by type
-        const byType = {};
-        for (const entry of compendium.entries) {
-            const type = entry.type || 'other';
-            if (!byType[type]) byType[type] = [];
-            byType[type].push(entry);
-        }
-
-        for (const [type, entries] of Object.entries(byType)) {
-            options += `<optgroup label="${type.charAt(0).toUpperCase() + type.slice(1)}s">`;
-            for (const entry of entries) {
-                const selected = entry.id === selectedId ? 'selected' : '';
-                options += `<option value="${entry.id}" ${selected}>${entry.name}</option>`;
-            }
-            options += '</optgroup>';
-        }
-    }
-    return options;
-}
-
-// Level-up trigger keywords (announce new level)
-const levelUpTriggerKeywords = [
-    'level up',
-    'leveled up',
-    'levelled up',
-    'gained a level',
-    'gain a level',
-    'gained \\d+ levels',
-    'gain \\d+ levels',
-    'reached level',
-    'advanced to level',
-    'you are now level',
-    'congratulations.*level',
-    'new level'
-];
-
-// Reference phrases (talking about past level-up, don't trigger)
-const levelUpReferencePatterns = [
-    'now that you.*level',
-    'since you.*level',
-    'after leveling',
-    'having leveled',
-    'your new level',
-    'the level you gained',
-    'with your level'
-];
-
-// Check if text is just referencing a past level-up
-function isLevelUpReference(text) {
-    const lowerText = text.toLowerCase();
-    for (const pattern of levelUpReferencePatterns) {
-        const regex = new RegExp(pattern, 'i');
-        if (regex.test(lowerText)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// Detect level-up and extract count (returns { detected: bool, count: number })
+// Detect explicit level-up tags: [LEVEL UP] or [LEVEL UP: 3]
+// Returns { detected: bool, count: number }
 function detectLevelUp(text) {
-    console.log('[Skill Check] detectLevelUp called');
-    const lowerText = text.toLowerCase();
-
-    // Skip if this is just a reference to past level-up
-    if (isLevelUpReference(text)) {
-        console.log('[Skill Check] Text is a reference to past level-up, skipping');
-        return { detected: false, count: 0 };
+    let count = 0;
+    const regex = /\[\s*LEVEL\s*UP(?:\s*:\s*(\d+))?\s*\]/gi;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        count += match[1] ? parseInt(match[1]) : 1;
+        console.log('[Skill Check] Level-up tag matched:', match[0]);
     }
-
-    let levelsGained = 0;
-
-    // Check for "gain X levels" or "gained X levels"
-    const multiLevelMatch = text.match(/gain(?:ed)?\s+(\d+)\s+levels?/i);
-    if (multiLevelMatch) {
-        console.log('[Skill Check] Matched "gain X levels":', multiLevelMatch[0]);
-        levelsGained = Math.max(levelsGained, parseInt(multiLevelMatch[1]));
-    }
-
-    // Check for "you are now level X" and calculate difference
-    const nowLevelMatch = text.match(/(?:you are now|reached|advanced to)\s+level\s+(\d+)/i);
-    if (nowLevelMatch) {
-        console.log('[Skill Check] Matched "you are now level X":', nowLevelMatch[0]);
-        const settings = extension_settings[extensionName];
-        const newLevel = parseInt(nowLevelMatch[1]);
-        const gained = newLevel - settings.level;
-        console.log(`[Skill Check] Current level: ${settings.level}, new level: ${newLevel}, gained: ${gained}`);
-        if (gained > 0) {
-            levelsGained = Math.max(levelsGained, gained);
-        }
-    }
-
-    // Count occurrences of "level up!" (repeated)
-    const levelUpCount = (text.match(/level\s+up[!\s]/gi) || []).length;
-    if (levelUpCount > 0) {
-        console.log('[Skill Check] Found "level up!" count:', levelUpCount);
-        levelsGained = Math.max(levelsGained, levelUpCount);
-    }
-
-    // Check standard trigger keywords (count as 1 level if not already detected)
-    if (levelsGained === 0) {
-        for (const keyword of levelUpTriggerKeywords) {
-            const regex = new RegExp(keyword, 'i');
-            if (regex.test(lowerText)) {
-                console.log('[Skill Check] Matched trigger keyword:', keyword);
-                levelsGained = 1;
-                break;
-            }
-        }
-    }
-
-    console.log('[Skill Check] detectLevelUp result: detected =', levelsGained > 0, ', count =', levelsGained);
-    return {
-        detected: levelsGained > 0,
-        count: levelsGained
-    };
+    return { detected: count > 0, count };
 }
 
 // Show level-up notification with confirmation
-function showLevelUpToast(count, messageIndex) {
+function showLevelUpToast(count) {
     // Remove existing level-up toast if any
     $('.skill-check-levelup-toast').remove();
 
@@ -672,14 +231,13 @@ function showLevelUpToast(count, messageIndex) {
 
     // Apply button - grant levels and open character sheet
     toast.find('.levelup-apply').on('click', function() {
-        applyLevelUp(count, messageIndex);
+        applyLevelUp(count);
         toast.remove();
         openCharacterSheet();
     });
 
-    // Ignore button - just update tracking index
+    // Ignore button - just dismiss
     toast.find('.levelup-ignore').on('click', function() {
-        ignoreLevelUp(messageIndex);
         toast.remove();
     });
 
@@ -689,220 +247,138 @@ function showLevelUpToast(count, messageIndex) {
     setTimeout(() => {
         // If still visible, treat as ignored
         if (toast.is(':visible')) {
-            ignoreLevelUp(messageIndex);
             toast.fadeOut(300, () => toast.remove());
         }
     }, 15000);
 }
 
-// Apply level-up: grant levels and update tracking
-function applyLevelUp(count, messageIndex) {
+// Apply level-up: grant levels and pending stat points
+function applyLevelUp(count) {
     const settings = extension_settings[extensionName];
     settings.level += count;
     settings.pendingLevelUps += count;
-    settings.lastLevelUpMessageIndex = messageIndex;
     saveSettingsDebounced();
 
     console.log(`[Skill Check] Level up applied! +${count} level(s), now level ${settings.level}, ${settings.pendingLevelUps} pending point(s)`);
 }
 
-// Ignore level-up: just update tracking to prevent re-trigger
-function ignoreLevelUp(messageIndex) {
-    const settings = extension_settings[extensionName];
-    settings.lastLevelUpMessageIndex = messageIndex;
-    saveSettingsDebounced();
-
-    console.log(`[Skill Check] Level up ignored at message ${messageIndex}`);
-}
-
-// Check the most recent AI message for level-up, inventory, and spells
-function checkForLevelUp() {
+// Process the most recent AI message for state tags (items, spells, level-ups).
+// Each message is processed exactly once, tracked via lastProcessedMessageIndex.
+function processIncomingMessage() {
     try {
-        console.log('[Skill Check] ===== checkForLevelUp called =====');
+        console.log('[Skill Check] ===== processIncomingMessage called =====');
         const settings = extension_settings[extensionName];
         const context = getContext();
 
-        console.log('[Skill Check] getContext imported:', typeof getContext);
-        console.log('[Skill Check] context exists:', !!context);
-
         if (!context || !context.chat || context.chat.length === 0) {
-            console.warn('[Skill Check] No chat context available for level-up check');
+            console.warn('[Skill Check] No chat context available for tag processing');
             return;
         }
 
         const chat = context.chat;
         const currentIndex = chat.length - 1;
 
-        console.log('[Skill Check] Chat length:', chat.length);
-        console.log('[Skill Check] Current index:', currentIndex);
-        console.log('[Skill Check] Last level-up index:', settings.lastLevelUpMessageIndex);
-        console.log('[Skill Check] Required gap:', settings.levelUpMessageGap);
-
-        // Detect chat reset: if current index is less than last tracked indices,
+        // Detect chat reset: if current index is less than the last processed index,
         // we're in a new/different chat, so reset the tracking
-        if (settings.lastLevelUpMessageIndex >= 0 && currentIndex < settings.lastLevelUpMessageIndex) {
-            console.log('[Skill Check] Chat reset detected (current index < last level-up index), resetting tracking');
-            settings.lastLevelUpMessageIndex = -1;
-            settings.lastProcessedMessageIndex = -1;
-            saveSettingsDebounced();
-        }
         if (settings.lastProcessedMessageIndex >= 0 && currentIndex < settings.lastProcessedMessageIndex) {
             console.log('[Skill Check] Chat reset detected (current index < last processed index), resetting tracking');
             settings.lastProcessedMessageIndex = -1;
             saveSettingsDebounced();
         }
 
-        // Check if we're within the cooldown period for level-up detection only
-        let skipLevelUpCheck = false;
-        if (settings.lastLevelUpMessageIndex >= 0) {
-            const gap = currentIndex - settings.lastLevelUpMessageIndex;
-            console.log('[Skill Check] Gap since last level-up:', gap);
-            if (gap < settings.levelUpMessageGap) {
-                console.log('[Skill Check] Still in level-up cooldown period, will skip level-up check');
-                skipLevelUpCheck = true;
-            }
-        }
-
-        // Count AI messages from the end
-        let aiMessagesChecked = 0;
-        for (let i = chat.length - 1; i >= 0 && aiMessagesChecked < 1; i--) {
+        // Find the most recent AI message and process its tags once
+        for (let i = chat.length - 1; i >= 0; i--) {
             const msg = chat[i];
-
-            console.log(`[Skill Check] Checking message ${i}, is_user: ${msg.is_user}`);
-
-            // Skip user messages
             if (msg.is_user) continue;
 
-            aiMessagesChecked++;
-
-            // Check for level-up, inventory, and spells in this AI message
-            if (msg.mes) {
-                console.log(`[Skill Check] AI message content (first 200 chars):`, msg.mes.substring(0, 200));
-
-                // Check for level-up (only if not in cooldown)
-                if (!skipLevelUpCheck) {
-                    const result = detectLevelUp(msg.mes);
-                    console.log(`[Skill Check] detectLevelUp result:`, result);
-                    if (result.detected && result.count > 0) {
-                        console.log(`[Skill Check] ✓ Level-up detected: +${result.count} level(s) at message index ${i}`);
-                        showLevelUpToast(result.count, i);
-                    } else {
-                        console.log('[Skill Check] No level-up detected in this message');
-                    }
-                } else {
-                    console.log('[Skill Check] Skipping level-up check due to cooldown');
-                }
-
-                // Check for inventory and spell changes (only if not already processed)
-                if (i > settings.lastProcessedMessageIndex) {
-                    console.log(`[Skill Check] Processing message ${i} for inventory/spells (last processed: ${settings.lastProcessedMessageIndex})`);
-                    checkForInventoryAndSpells(msg.mes);
-                    settings.lastProcessedMessageIndex = i;
-                    saveSettingsDebounced();
-                } else {
-                    console.log(`[Skill Check] Skipping inventory/spell check - message ${i} already processed`);
-                }
+            if (i <= settings.lastProcessedMessageIndex) {
+                console.log(`[Skill Check] Message ${i} already processed, skipping`);
+                break;
             }
+
+            if (msg.mes) {
+                console.log(`[Skill Check] Processing message ${i} for tags:`, msg.mes.substring(0, 200));
+                processMessageTags(msg.mes);
+            }
+
+            settings.lastProcessedMessageIndex = i;
+            saveSettingsDebounced();
+            break;
         }
-        console.log('[Skill Check] ===== checkForLevelUp complete =====');
+        console.log('[Skill Check] ===== processIncomingMessage complete =====');
     } catch (e) {
-        console.error('[Skill Check] Error checking for level-up:', e);
+        console.error('[Skill Check] Error processing message tags:', e);
         console.error('[Skill Check]', e.stack);
     }
 }
 
-// Detect inventory additions (returns array of { name, quantity })
+// ===== LLM-MANAGED INVENTORY, SPELLS & LEVELS (TAG PROTOCOL) =====
+// The AI manages game state explicitly with tags in its messages:
+//   [ITEM GAINED: health potion x2]   - add items (quantity optional)
+//   [ITEM LOST: rope]                 - remove items
+//   [SPELL LEARNED: fireball]         - learn a spell
+//   [SPELL FORGOTTEN: fireball]       - forget a spell
+//   [LEVEL UP] / [LEVEL UP: 2]        - gain level(s)
+
+// Parse an item tag body into { name, quantity }.
+// Accepts "health potion x2", "2 health potions", or just "rope".
+function parseItemBody(body) {
+    let name = body.trim();
+    let quantity = 1;
+
+    const suffix = name.match(/^(.*?)\s*[x×]\s*(\d+)$/i);
+    if (suffix) {
+        name = suffix[1].trim();
+        quantity = parseInt(suffix[2]);
+    } else {
+        const prefix = name.match(/^(\d+)\s+(.+)$/);
+        if (prefix) {
+            quantity = parseInt(prefix[1]);
+            name = prefix[2].trim();
+        }
+    }
+
+    // Remove articles "the", "a", "an" from the beginning
+    name = name.replace(/^(?:the|an?)\s+/i, '');
+
+    if (name.length < 1 || name.length > 50) return null;
+    return { name, quantity: Math.max(1, quantity) };
+}
+
+// Generic tag collector: runs a tag regex over text, parses each body with parseItemBody
+function collectItemTags(text, regex) {
+    const items = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        const item = parseItemBody(match[1]);
+        if (item) {
+            items.push(item);
+            console.log(`[Skill Check] ✓ Tag matched: "${match[0]}" → ${item.quantity}x "${item.name}"`);
+        }
+    }
+    return items;
+}
+
+// Detect inventory additions from [ITEM GAINED: ...] tags (ITEM ADDED also accepted)
 function detectInventoryAdditions(text) {
-    const additions = [];
-    // Pattern: Only match "X added to inventory" or "add/added X to inventory"
-    const patterns = [
-        // "add/added X to inventory" or "add/added to inventory"
-        /add(?:ed|s)?\s+(?:the\s+)?(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+to\s+(?:your\s+)?inventory/gi,
-        // "X added to inventory"
-        /(?:(\d+)\s+)?(?:the\s+)?([a-z0-9\s\-']+?)\s+add(?:ed|s)?\s+to\s+(?:your\s+)?inventory/gi
-    ];
-
-    console.log('[Skill Check] detectInventoryAdditions called with text:', text.substring(0, 200));
-
-    for (const pattern of patterns) {
-        let match;
-        // Reset lastIndex for global regex
-        pattern.lastIndex = 0;
-        while ((match = pattern.exec(text)) !== null) {
-            const quantity = match[1] ? parseInt(match[1]) : 1;
-            let itemName = match[2].trim();
-            console.log(`[Skill Check] Inventory regex matched: "${match[0]}", captured item: "${itemName}", qty: ${quantity}`);
-            // Remove articles "the", "a", "an" from the beginning
-            itemName = itemName.replace(/^(?:the|an?)\s+/i, '');
-            // Skip very short or very long item names
-            if (itemName.length > 2 && itemName.length < 50) {
-                additions.push({ name: itemName, quantity });
-                console.log(`[Skill Check] ✓ Detected inventory addition: ${quantity}x "${itemName}"`);
-            }
-        }
-    }
-
-    console.log(`[Skill Check] detectInventoryAdditions found ${additions.length} item(s)`);
-    return additions;
+    return collectItemTags(text, /\[\s*ITEM\s+(?:GAINED|ADDED)\s*:\s*([^\]]+?)\s*\]/gi);
 }
 
-// Detect inventory removals (returns array of { name, quantity })
+// Detect inventory removals from [ITEM LOST: ...] tags (ITEM REMOVED / ITEM USED also accepted)
 function detectInventoryRemovals(text) {
-    const removals = [];
-    // Pattern: Only match "X removed from inventory" or "remove/removed X from inventory"
-    const patterns = [
-        // "remove/removed X from inventory" or "remove/removed from inventory"
-        /remove(?:d|s)?\s+(?:the\s+)?(?:(\d+)\s+)?([a-z0-9\s\-']+?)\s+from\s+(?:your\s+)?inventory/gi,
-        // "X removed from inventory"
-        /(?:(\d+)\s+)?(?:the\s+)?([a-z0-9\s\-']+?)\s+remove(?:d|s)?\s+from\s+(?:your\s+)?inventory/gi
-    ];
-
-    for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(text)) !== null) {
-            const quantity = match[1] ? parseInt(match[1]) : 1;
-            let itemName = match[2].trim();
-            // Remove articles "the", "a", "an" from the beginning
-            itemName = itemName.replace(/^(?:the|an?)\s+/i, '');
-            // Skip very short or very long item names
-            if (itemName.length > 2 && itemName.length < 50) {
-                removals.push({ name: itemName, quantity });
-            }
-        }
-    }
-
-    return removals;
+    return collectItemTags(text, /\[\s*ITEM\s+(?:LOST|REMOVED|USED)\s*:\s*([^\]]+?)\s*\]/gi);
 }
 
-// Detect spell learning (returns array of spell names)
+// Detect spells from [SPELL LEARNED: ...] tags. Returns array of spell names.
 function detectSpellLearning(text) {
-    const spells = [];
-    // Pattern: "you learn the spell X" or "you learned the spell X"
-    // Spell name must start with letter, can contain letters/numbers/spaces/hyphens/apostrophes, must end with letter/number
-    const patterns = [
-        /you\s+(?:learn(?:ed)?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell\s+([a-z][a-z0-9\s\-']*[a-z0-9])/gi,
-        /(?:learned?|gained?|obtained?|acquired?)\s+(?:the\s+)?spell[:\s]+([a-z][a-z0-9\s\-']*[a-z0-9])/gi
-    ];
+    return collectItemTags(text, /\[\s*SPELL\s+(?:LEARNED|GAINED)\s*:\s*([^\]]+?)\s*\]/gi)
+        .map(item => item.name);
+}
 
-    console.log('[Skill Check] detectSpellLearning called with text:', text.substring(0, 200));
-
-    for (const pattern of patterns) {
-        let match;
-        // Reset lastIndex for global regex
-        pattern.lastIndex = 0;
-        while ((match = pattern.exec(text)) !== null) {
-            const spellName = match[1].trim();
-            console.log(`[Skill Check] Spell regex matched: "${match[0]}", captured: "${spellName}"`);
-            // Skip very short or very long spell names
-            if (spellName.length > 2 && spellName.length < 50) {
-                spells.push(spellName);
-                console.log(`[Skill Check] ✓ Detected spell: "${spellName}"`);
-            }
-        }
-    }
-
-    console.log(`[Skill Check] detectSpellLearning found ${spells.length} spell(s)`);
-    return spells;
+// Detect forgotten spells from [SPELL FORGOTTEN: ...] tags. Returns array of spell names.
+function detectSpellRemovals(text) {
+    return collectItemTags(text, /\[\s*SPELL\s+(?:FORGOTTEN|LOST|REMOVED)\s*:\s*([^\]]+?)\s*\]/gi)
+        .map(item => item.name);
 }
 
 // Add item to inventory
@@ -962,37 +438,79 @@ function addSpell(spellName) {
     }
 }
 
-// Check for inventory and spell changes in a message
-function checkForInventoryAndSpells(text) {
-    // Detect inventory additions
+// Remove spell from spell list
+function removeSpell(spellName) {
+    const settings = extension_settings[extensionName];
+    if (!settings.spells) settings.spells = [];
+
+    const before = settings.spells.length;
+    settings.spells = settings.spells.filter(spell =>
+        spell.name.toLowerCase() !== spellName.toLowerCase()
+    );
+
+    if (settings.spells.length < before) {
+        saveSettingsDebounced();
+        console.log(`[Skill Check] Forgot spell: ${spellName}`);
+    }
+}
+
+// Process all state tags in an AI message (items, spells, level-ups)
+function processMessageTags(text) {
+    // Inventory additions
     const additions = detectInventoryAdditions(text);
     for (const item of additions) {
         addToInventory(item.name, item.quantity);
     }
 
-    // Detect inventory removals
+    // Inventory removals
     const removals = detectInventoryRemovals(text);
     for (const item of removals) {
         removeFromInventory(item.name, item.quantity);
     }
 
-    // Detect spell learning
+    // Spells learned
     const spells = detectSpellLearning(text);
     for (const spellName of spells) {
         addSpell(spellName);
+    }
+
+    // Spells forgotten
+    const forgotten = detectSpellRemovals(text);
+    for (const spellName of forgotten) {
+        removeSpell(spellName);
+    }
+
+    // Level-ups (shown as a confirmation toast)
+    const levelUp = detectLevelUp(text);
+    if (levelUp.detected) {
+        console.log(`[Skill Check] ✓ Level-up tag detected: +${levelUp.count} level(s)`);
+        showLevelUpToast(levelUp.count);
     }
 
     // Update character sheet prompt after changes
     updateCharacterSheetPrompt();
 }
 
+// Build the Game Master instructions that teach the AI the tag protocol
+function buildGmInstructions() {
+    return [
+        '---GAME MASTER INSTRUCTIONS---',
+        'You are responsible for setting challenge difficulty and managing the player\'s inventory, spells, and level. Declare all game-state changes explicitly using these exact tags, each on its own line at the end of your message:',
+        '- [SKILL DC: 15] — declare the difficulty of a challenge the player is facing before they attempt it. Use per-stat DCs when different approaches vary in difficulty: [SKILL DC: STR 18, DEX 12]. Optionally name the challenge: [SKILL DC: 15 | Rusty Lock].',
+        '  Difficulty guide: 5 = trivial, 10 = easy, 12 = medium, 15 = hard, 20 = very hard, 25 = nearly impossible.',
+        '- [ITEM GAINED: item name x2] — whenever the player acquires items (quantity optional).',
+        '- [ITEM LOST: item name] — whenever the player loses, uses up, gives away, or breaks an item.',
+        '- [SPELL LEARNED: spell name] — when the player learns a new spell.',
+        '- [SPELL FORGOTTEN: spell name] — when the player loses access to a spell.',
+        '- [LEVEL UP] — when the player gains a level (use [LEVEL UP: 2] for multiple levels).',
+        'Always declare a [SKILL DC] tag when you present a meaningful challenge or obstacle, and keep difficulties consistent with the fiction. Only emit tags for changes that actually happen in the story — never for hypothetical ones.',
+        '---END GAME MASTER INSTRUCTIONS---'
+    ].join('\n');
+}
+
 // Build character sheet prompt text
 function buildCharacterSheetPrompt() {
     const settings = extension_settings[extensionName];
-
-    if (!settings.injectCharacterSheet) {
-        return '';
-    }
 
     let prompt = '---CHARACTER SHEET---\n';
 
@@ -1027,19 +545,32 @@ function buildCharacterSheetPrompt() {
     }
 
     prompt += '---END CHARACTER SHEET---\n';
-    prompt += 'Note: This is the player character\'s current status. Do not narrate or mention this sheet directly unless the player asks about their stats. Use this information to inform your responses about the character\'s capabilities. When the user adds or removes an item from their inventory, you must explicitly state Added to Inventory or Removed from Inventory. When the player learns a spell, you must explicitly state You Learn the Spell.';
+    prompt += 'Note: This is the player character\'s current status. Do not narrate or mention this sheet directly unless the player asks about their stats. Use this information to inform your responses about the character\'s capabilities.';
 
     return prompt;
 }
 
+// Build the full extension prompt (character sheet + GM instructions)
+function buildExtensionPrompt() {
+    const settings = extension_settings[extensionName];
+    const parts = [];
+
+    if (settings.injectCharacterSheet) {
+        parts.push(buildCharacterSheetPrompt());
+    }
+    if (settings.injectGmInstructions) {
+        parts.push(buildGmInstructions());
+    }
+
+    return parts.join('\n');
+}
+
 // Update the character sheet prompt in context
 function updateCharacterSheetPrompt() {
-    const settings = extension_settings[extensionName];
-
     // Get setExtensionPrompt from the context API
     const context = getContext();
     if (context && typeof context.setExtensionPrompt === 'function') {
-        const promptText = buildCharacterSheetPrompt();
+        const promptText = buildExtensionPrompt();
 
         // Register the prompt with identifier and position
         context.setExtensionPrompt(
@@ -1055,9 +586,9 @@ function updateCharacterSheetPrompt() {
     }
 }
 
-// Set up level-up detection using MutationObserver
-function setupLevelUpDetection() {
-    console.log('[Skill Check] ===== Setting up level-up detection =====');
+// Set up tag processing on incoming AI messages
+function setupMessageTagProcessing() {
+    console.log('[Skill Check] ===== Setting up message tag processing =====');
     console.log('[Skill Check] eventSource available:', typeof eventSource !== 'undefined');
 
     // Try to hook into SillyTavern events if available
@@ -1065,9 +596,9 @@ function setupLevelUpDetection() {
         try {
             eventSource.on('message_received', () => {
                 console.log('[Skill Check] message_received event fired');
-                setTimeout(checkForLevelUp, 500); // Small delay to ensure message is in context
+                setTimeout(processIncomingMessage, 500); // Small delay to ensure message is in context
             });
-            console.log('[Skill Check] ✓ Level-up detection hooked into message_received event');
+            console.log('[Skill Check] ✓ Tag processing hooked into message_received event');
             return;
         } catch (e) {
             console.warn('[Skill Check] Could not hook into message events:', e);
@@ -1083,20 +614,20 @@ function setupLevelUpDetection() {
             console.log('[Skill Check] MutationObserver triggered, mutations:', mutations.length);
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length > 0) {
-                    console.log('[Skill Check] New nodes added to chat, checking for level-up');
-                    // New content added, check for level-up after a delay
-                    setTimeout(checkForLevelUp, 500);
+                    console.log('[Skill Check] New nodes added to chat, processing tags');
+                    // New content added, process tags after a delay
+                    setTimeout(processIncomingMessage, 500);
                     break;
                 }
             }
         });
 
         observer.observe(chatContainer, { childList: true, subtree: true });
-        console.log('[Skill Check] ✓ Level-up detection using MutationObserver on #chat');
+        console.log('[Skill Check] ✓ Tag processing using MutationObserver on #chat');
     } else {
         // Last resort: periodic check
-        setInterval(checkForLevelUp, 3000);
-        console.log('[Skill Check] ⚠ Level-up detection using periodic check (3s interval)');
+        setInterval(processIncomingMessage, 3000);
+        console.log('[Skill Check] ⚠ Tag processing using periodic check (3s interval)');
     }
 }
 
@@ -1194,7 +725,7 @@ async function performSkillCheck(statKey) {
     const statValue = settings.stats[statKey];
     const modifier = getModifier(statValue);
 
-    // Get active difficulty from compendium or default
+    // Get active difficulty (manual override, AI-declared, or default)
     const challengeInfo = getActiveDifficulty(statDisplayName);
 
     // Roll the dice
@@ -1335,24 +866,17 @@ function openCharacterSheet(scrollPosition = 0) {
                 </div>
                 <div class="skill-check-popup-content">
                     <div class="skill-check-popup-section">
-                        <h4>Compendiums</h4>
-                        <div class="skill-check-compendium-list">
-                            ${loadedCompendiums.map(comp => `
-                                <label class="checkbox_label skill-check-compendium-toggle">
-                                    <input type="checkbox" data-filename="${comp._filename}" ${comp._enabled ? 'checked' : ''} />
-                                    <span>${comp.name}</span>
-                                    <small class="compendium-entry-count">(${comp.entries.length} entries)</small>
-                                </label>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <div class="skill-check-popup-section">
-                        <h4>Detection</h4>
+                        <h4>Difficulty</h4>
                         <label class="checkbox_label skill-check-toggle">
-                            <input id="skill-check-use-compendium" type="checkbox" ${settings.useCompendium ? 'checked' : ''} />
-                            <span>Auto-detect challenges from context</span>
+                            <input id="skill-check-use-llm-dc" type="checkbox" ${settings.useLlmDifficulty ? 'checked' : ''} />
+                            <span>Use AI-declared difficulty ([SKILL DC] tags)</span>
                         </label>
+                        <small>The AI sets the DC for challenges it presents via [SKILL DC: 15] tags</small>
+                        <label class="checkbox_label skill-check-toggle">
+                            <input id="skill-check-inject-gm" type="checkbox" ${settings.injectGmInstructions ? 'checked' : ''} />
+                            <span>Inject GM instructions into context</span>
+                        </label>
+                        <small>Teaches the AI to declare DCs and manage your inventory with tags</small>
                         <label class="checkbox_label skill-check-toggle">
                             <input id="skill-check-inject-sheet" type="checkbox" ${settings.injectCharacterSheet ? 'checked' : ''} />
                             <span>Inject character sheet into context</span>
@@ -1370,17 +894,21 @@ function openCharacterSheet(scrollPosition = 0) {
                             </div>
                         </div>
                         <div class="skill-check-manual-override">
-                            <small>Manual override:</small>
-                            <select id="skill-check-manual-challenge" class="text_pole">
-                                <option value="">Auto-detect</option>
-                                ${getAllChallengeOptions(settings.manualChallenge)}
-                            </select>
+                            <small>Next roll DC override (0 = off, applies to next roll only):</small>
+                            <input
+                                id="skill-check-next-dc"
+                                type="number"
+                                min="0"
+                                max="30"
+                                value="${settings.nextRollDc}"
+                                class="text_pole"
+                            />
                         </div>
                     </div>
 
                     <div class="skill-check-popup-section">
                         <h4>Default Difficulty (DC)</h4>
-                        <small>Used when no challenge is detected</small>
+                        <small>Used when the AI hasn't declared a DC</small>
                         <div class="skill-check-difficulty-row">
                             <input
                                 id="skill-check-popup-difficulty"
@@ -1461,7 +989,7 @@ function openCharacterSheet(scrollPosition = 0) {
 
                     <div class="skill-check-popup-section">
                         <h4>Inventory</h4>
-                        <small>Auto-detected from "added to inventory" / "removed from inventory"</small>
+                        <small>Managed by the AI via [ITEM GAINED: ...] / [ITEM LOST: ...] tags</small>
                         <div class="skill-check-inventory-list">
                             ${settings.inventory && settings.inventory.length > 0 ? settings.inventory.map((item, index) => `
                                 <div class="skill-check-inventory-item" data-index="${index}">
@@ -1489,7 +1017,7 @@ function openCharacterSheet(scrollPosition = 0) {
 
                     <div class="skill-check-popup-section">
                         <h4>Spells</h4>
-                        <small>Auto-detected from "you learn the spell X"</small>
+                        <small>Managed by the AI via [SPELL LEARNED: ...] / [SPELL FORGOTTEN: ...] tags</small>
                         <div class="skill-check-spells-list">
                             ${settings.spells && settings.spells.length > 0 ? settings.spells.map((spell, index) => `
                                 <div class="skill-check-spell-item" data-index="${index}">
@@ -1567,24 +1095,19 @@ function openCharacterSheet(scrollPosition = 0) {
         $(this).val(''); // Reset dropdown
     });
 
-    // Individual compendium toggle handlers
-    popup.find('.skill-check-compendium-toggle input').on('change', function() {
-        const filename = $(this).data('filename');
-        const enabled = $(this).prop('checked');
-        toggleCompendium(filename, enabled);
-        // Refresh the detected challenge display and manual override options
-        popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
-        popup.find('#skill-check-manual-challenge').html(
-            '<option value="">Auto-detect</option>' + getAllChallengeOptions(settings.manualChallenge)
-        );
-    });
-
-    // Auto-detect toggle handler
-    popup.find('#skill-check-use-compendium').on('change', function() {
-        settings.useCompendium = $(this).prop('checked');
+    // AI-declared difficulty toggle handler
+    popup.find('#skill-check-use-llm-dc').on('change', function() {
+        settings.useLlmDifficulty = $(this).prop('checked');
         saveSettingsDebounced();
         // Refresh the detected challenge display
         popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
+    });
+
+    // Inject GM instructions toggle handler
+    popup.find('#skill-check-inject-gm').on('change', function() {
+        settings.injectGmInstructions = $(this).prop('checked');
+        saveSettingsDebounced();
+        updateCharacterSheetPrompt();
     });
 
     // Inject character sheet toggle handler
@@ -1600,10 +1123,11 @@ function openCharacterSheet(scrollPosition = 0) {
         saveSettingsDebounced();
     });
 
-    // Manual challenge override handler
-    popup.find('#skill-check-manual-challenge').on('change', function() {
-        const value = $(this).val();
-        settings.manualChallenge = value || null;
+    // One-shot manual DC override handler
+    popup.find('#skill-check-next-dc').on('change', function() {
+        const value = parseInt($(this).val()) || 0;
+        settings.nextRollDc = Math.max(0, Math.min(30, value));
+        $(this).val(settings.nextRollDc);
         saveSettingsDebounced();
         // Refresh the detected challenge display
         popup.find('#skill-check-detected-challenge').html(getCurrentChallengeDisplay());
@@ -2022,9 +1546,6 @@ jQuery(async () => {
 
         console.log('[Skill Check] Settings initialized:', extension_settings[extensionName]);
 
-        // Load compendiums
-        await loadCompendiums();
-
         // Create UI elements
         createStatButtons();
         createSettingsPanel();
@@ -2032,8 +1553,8 @@ jQuery(async () => {
         // Set initial visibility
         toggleExtension();
 
-        // Set up level-up detection
-        setupLevelUpDetection();
+        // Set up tag processing on incoming messages
+        setupMessageTagProcessing();
 
         // Initialize character sheet prompt
         updateCharacterSheetPrompt();
