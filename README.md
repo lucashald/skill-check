@@ -13,7 +13,7 @@ Skill Check adds a comprehensive RPG system to SillyTavern:
 3. **AI-Managed Inventory, Spells & HP**: The AI declares changes with `[ITEM GAINED: ...]`, `[SPELL LEARNED: ...]`, `[HP: -5]` tags. Every change pops a **toast with an Undo button**, and changes from swiped-away or edited messages are automatically reverted
 4. **Explicit Level-Ups**: The AI declares level-ups with a `[LEVEL UP]` tag; you confirm before it's applied. Missed the toast? The offer stays as a badge on the character sheet button
 5. **Character Sheet Injection**: Your stats, HP, inventory, and spells are automatically included in AI context
-6. **Clean Chat**: Protocol tags are cosmetically hidden from rendered messages (toggleable)
+6. **Optional Clean Chat**: Tags stay visible in chat by default (they're part of the AI's message); a toggle can cosmetically hide them if you prefer
 7. **Roll History**: The last 10 rolls (with dice, DC, and outcome) are listed in the character sheet popup
 8. **Customizable Outcomes**: Edit the per-tier instructions the AI receives ("FAILED BADLY. Narrate…") to fit your genre
 
@@ -159,7 +159,7 @@ The character sheet popup (scroll icon) is the single source of truth for all se
 - **Use AI-declared difficulty** (default: ON): Read `[SKILL DC]` tags from recent messages. When off, rolls always use the default DC (or the one-shot override).
 - **Inject GM instructions** (default: ON): Injects the tag protocol instructions into context so the AI knows how to declare DCs and manage inventory. Turn this off if you'd rather put the instructions in your own system prompt or character card.
 - **Inject character sheet** (default: ON): Includes your stats, HP, inventory, and spells in AI context.
-- **Hide tags in chat display** (default: ON): Cosmetically strips protocol tags from rendered messages. The underlying message text is untouched (the extension still parses it); reload the chat to restore already-hidden tags after turning this off.
+- **Hide tags in chat display** (default: OFF): Cosmetically strips protocol tags from rendered messages. The underlying message text is untouched (the extension still parses it); reload the chat to restore already-hidden tags after turning this off.
 - **Append roll without auto-sending** (default: ON): Lets you review the roll outcome before sending.
 - **Next roll DC override**: One-shot manual DC (0 = off).
 
@@ -230,9 +230,9 @@ Spells: fireball
 3. Show toast with the full roll math (you see the numbers; the AI doesn't) and record it in the roll history
 4. Append the outcome instruction to your message; auto-send if configured
 
-### Tag Hiding
+### Tag Hiding (Optional)
 
-Tags are hidden from rendered chat messages by default ("Hide tags in chat display" toggle). This is purely cosmetic — the underlying message text keeps the tags so parsing, regeneration, and context all work normally. Undo isn't retroactive: turning the toggle off restores tags on newly rendered messages; reload the chat to re-render older ones.
+Tags are visible in chat by default — they're part of the AI's message, and seeing them doubles as a persistent record of every DC and state change (the toasts are transient). If you'd rather have a clean chat, enable "Hide tags in chat display" in the popup. Hiding is purely cosmetic — the underlying message text keeps the tags so parsing, regeneration, and context all work normally. Hiding isn't retroactive-safe though: turning it back off only affects newly rendered messages; reload the chat to re-render older ones.
 
 ### Compatibility
 

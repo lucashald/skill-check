@@ -64,7 +64,7 @@ const defaultSettings = {
     spells: [], // Array of { name: string }
     injectCharacterSheet: true, // Inject character sheet into context
     appendRollWithoutSending: true, // If true, append roll to message but don't auto-send
-    hideTagsInChat: true, // Cosmetically hide protocol tags in rendered chat messages
+    hideTagsInChat: false, // Cosmetically hide protocol tags in rendered chat messages
     outcomeTexts: { ...defaultOutcomeTexts }, // Editable outcome instructions per tier
     rollHistory: [] // Most recent rolls, newest first (capped at 10)
 };
