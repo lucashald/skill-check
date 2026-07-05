@@ -9,7 +9,7 @@ Skill Check adds a comprehensive RPG system to SillyTavern:
 ### Core Features
 
 1. **Manual Skill Checks**: Click a stat button to roll 1d20 + modifier against a difficulty. Shift-click for **advantage** (2d20 take highest), Ctrl-click for **disadvantage** (take lowest)
-2. **AI-Declared Difficulty**: The AI acts as Game Master and explicitly sets the DC for challenges it presents using `[SKILL DC: 15]` tags — the active DC is shown as a **badge** next to the stat buttons *before* you roll, and buttons with a declared DC glow
+2. **AI-Rated Scene Difficulty**: The AI acts as Game Master and rates how dangerous the current scene is with a `[SKILL DC: 15]` tag in every reply — that number is the target for whatever *you* decide to attempt. The active rating is shown as a **badge** next to the stat buttons *before* you roll
 3. **AI-Managed Inventory, Spells & HP**: The AI declares changes with `[ITEM GAINED: ...]`, `[SPELL LEARNED: ...]`, `[HP: -5]` tags. Every change pops a **toast with an Undo button**, and changes from swiped-away or edited messages are automatically reverted
 4. **Explicit Level-Ups**: The AI declares level-ups with a `[LEVEL UP]` tag; you confirm before it's applied. Missed the toast? The offer stays as a badge on the character sheet button
 5. **Character Sheet Injection**: Your stats, HP, inventory, and spells are automatically included in AI context
@@ -32,7 +32,9 @@ Earlier versions of this extension tried to *guess* game state from prose — sc
 This version flips the responsibility. The extension **tells the AI how to declare game state explicitly** (via an injected Game Master instruction block), and then parses only those exact, unambiguous tags:
 
 - ❌ Old: AI says "an ancient dragon blocks your path" → extension guesses DC from a keyword compendium
-- ✅ New: AI says "an ancient dragon blocks your path `[SKILL DC: STR 22, DEX 18 | Ancient Dragon]`" → extension knows the DC exactly
+- ✅ New: AI says "an ancient dragon blocks your path `[SKILL DC: 22]`" → extension knows the difficulty exactly
+
+The AI rates the *scene*, not your actions. It never decides what you're attempting or how — a lesson learned the hard way: when the prompt asked the model to name "challenges," it drifted into scripting the player's strategy ("Persuade Vale that Min is delirious"). Rating scene danger keeps it firmly on its own side of the table.
 
 The same applies to dice results. Instead of showing the AI the numerical roll (which models tend to reinterpret generously), the extension tells the AI the *outcome* directly:
 
@@ -45,9 +47,7 @@ When "Inject GM instructions" is enabled (default), the extension teaches the AI
 
 | Tag | Meaning |
 |-----|---------|
-| `[SKILL DC: 15]` | The challenge ahead has difficulty 15 for any stat |
-| `[SKILL DC: STR 18, DEX 12]` | Per-stat difficulties (breaking the door vs. picking the lock) |
-| `[SKILL DC: 15 \| Rusty Lock]` | Optional challenge name after a pipe (shown in the roll toast). Labels name the obstacle, never a suggested action — the AI is instructed that what to attempt is always the player's choice |
+| `[SKILL DC: 15]` | The current scene rates 15 — the target for whatever the player attempts next. The AI is instructed to end every reply with this, raising it as tension rises and lowering it as things calm (5 = calm/safe … 25 = desperate) |
 | `[ITEM GAINED: health potion x2]` | Add 2 health potions to inventory (quantity optional) |
 | `[ITEM LOST: rope]` | Remove rope from inventory (`ITEM USED` / `ITEM REMOVED` also work) |
 | `[SPELL LEARNED: fireball]` | Add a spell to your spell list |
@@ -56,15 +56,15 @@ When "Inject GM instructions" is enabled (default), the extension teaches the AI
 | `[HP MAX: 40]` | Change maximum HP |
 | `[LEVEL UP]` | Gain a level (`[LEVEL UP: 2]` for multiple); shows a confirmation toast |
 
-Tags are case-insensitive. `[DC: 15]` works as shorthand for `[SKILL DC: 15]`, and `[ITEM ADDED: ...]` / `[SPELL GAINED: ...]` are accepted as aliases.
+Tags are case-insensitive. `[DC: 15]` works as shorthand for `[SKILL DC: 15]`, and `[ITEM ADDED: ...]` / `[SPELL GAINED: ...]` are accepted as aliases. The parser also still understands per-stat DCs (`[SKILL DC: STR 18, DEX 12]`, matched to the stat you click) and labels (`[SKILL DC: 15 | Rusty Lock]`) — the AI is no longer instructed to use them, but they work if you type one yourself or an older chat contains them.
 
 **How difficulty resolution works** when you click a stat button, in priority order:
 
 1. **Next roll DC override** — a one-shot manual DC you set in the character sheet popup (resets after one roll)
-2. **AI-declared DC** — the most recent `[SKILL DC]` tag in the last N messages (N = "context messages" setting, default 5). Per-stat DCs are matched to the stat you clicked; a flat DC applies to any stat.
+2. **AI-rated scene DC** — the most recent `[SKILL DC]` tag in the last N messages (N = "context messages" setting, default 5)
 3. **Default difficulty** — your configured fallback DC (default 12)
 
-The currently active DC is always visible as a badge next to the stat buttons, so you know the difficulty *before* you roll. When the AI declares per-stat DCs, the matching stat buttons light up. You can also type a `[SKILL DC: X]` tag yourself in chat if you want to force a specific difficulty narratively.
+The current scene rating is always visible as a badge next to the stat buttons ("Scene DC 15"), so you know the difficulty *before* you roll. You can also type a `[SKILL DC: X]` tag yourself in chat if you want to force a specific difficulty narratively.
 
 **Trust but verify**: every inventory/spell/HP change the AI declares is shown in a "Character updated" toast with an **Undo** button. If you swipe to a different AI response or edit a message, the changes from the discarded version are automatically rolled back before the new version is applied.
 
@@ -107,15 +107,15 @@ The stat buttons should appear near your message input area.
    - Leave "Inject character sheet" and "Inject GM instructions" enabled
 
 2. **Play**:
-   - The AI presents a challenge and declares its difficulty: *"The vault door is sealed with a masterwork lock. `[SKILL DC: DEX 17 | Masterwork Lock]`"*
-   - The badge next to the stat buttons shows "Masterwork Lock — DEX 17" and the DEX button glows
-   - Type your action: "I carefully work my picks into the mechanism"
+   - The AI narrates the scene and rates it: *"Guards patrol the vault corridor, and the door is sealed with a masterwork lock. `[SKILL DC: 17]`"*
+   - The badge next to the stat buttons shows "Scene DC 17"
+   - You decide what to attempt and type it: "I carefully work my picks into the mechanism"
    - Click the **DEX** button (or Shift-click if you have advantage)
    - The extension rolls 1d20 + your DEX modifier vs DC 17
 
 3. **See what happened**:
-   - A toast shows you the roll: "DEX Check vs Masterwork Lock (DC 17): 14 + 4 = 18 → SUCCESS"
-   - The AI receives: `[System: The user attempted an action against Masterwork Lock using DEX. They SUCCEEDED. Narrate the user achieving their goal.]`
+   - A toast shows you the roll: "DEX Check (DC 17): 14 + 4 = 18 → SUCCESS"
+   - The AI receives: `[System: The user attempted an action using DEX. They SUCCEEDED. Narrate the user achieving their goal.]`
    - The AI narrates accordingly — and if there's loot, it declares it: *"The lock clicks open. Inside you find a coiled silver rope. `[ITEM GAINED: silver rope]`"*
    - A "Character updated" toast confirms *+ silver rope* (with Undo, in case the AI got creative)
 
@@ -211,8 +211,8 @@ Inventory: rope, health potion (×2)
 Spells: fireball
 ---END CHARACTER SHEET---
 ---GAME MASTER INSTRUCTIONS---
-{tag protocol instructions with a difficulty calibration guide:
- 5 = trivial, 10 = easy, 12 = medium, 15 = hard, 20 = very hard, 25 = nearly impossible}
+{tag protocol instructions with a scene-rating guide:
+ 5 = calm/safe, 10 = mild tension, 12 = risky, 15 = dangerous, 20 = very dangerous, 25 = desperate}
 ---END GAME MASTER INSTRUCTIONS---
 ```
 

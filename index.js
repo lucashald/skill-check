@@ -216,7 +216,7 @@ function getCurrentChallengeDisplay() {
     }
 
     const dcText = tag.dcs.ANY !== undefined
-        ? `DC ${tag.dcs.ANY}`
+        ? (tag.label ? `DC ${tag.dcs.ANY}` : `Scene DC ${tag.dcs.ANY}`)
         : Object.entries(tag.dcs).map(([stat, dc]) => `${stat} ${dc}`).join(', ');
     const labelText = tag.label ? `${tag.label} — ` : '';
     return `<span class="challenge-detected">${labelText}${dcText}</span>`;
@@ -249,7 +249,7 @@ function updateDcBadge() {
 
     const labelText = tag.label ? `${tag.label} — ` : '';
     if (tag.dcs.ANY !== undefined) {
-        badge.text(`${labelText}DC ${tag.dcs.ANY}`).show();
+        badge.text(tag.label ? `${labelText}DC ${tag.dcs.ANY}` : `Scene DC ${tag.dcs.ANY}`).show();
     } else {
         const parts = Object.entries(tag.dcs).map(([stat, dc]) => `${stat} ${dc}`);
         badge.text(`${labelText}${parts.join(', ')}`).show();
@@ -831,16 +831,17 @@ function showTagChangeToast(changes) {
 function buildGmInstructions() {
     return [
         '---GAME MASTER INSTRUCTIONS---',
-        'You are responsible for setting challenge difficulty and managing the player\'s inventory, spells, and level. Declare all game-state changes explicitly using these exact tags, each on its own line at the end of your message:',
-        '- [SKILL DC: 15] — declare the difficulty of a challenge the player is facing before they attempt it. Use per-stat DCs when different approaches vary in difficulty: [SKILL DC: STR 18, DEX 12]. Optionally name the challenge: [SKILL DC: 15 | Rusty Lock]. The label names the obstacle or circumstance (e.g. "Rusty Lock", "Vale\'s Suspicion") — never a suggested action or approach. What to attempt is always the player\'s choice.',
-        '  Difficulty guide: 5 = trivial, 10 = easy, 12 = medium, 15 = hard, 20 = very hard, 25 = nearly impossible.',
+        'You are responsible for rating scene difficulty and managing the player\'s inventory, spells, and level. Declare all game-state changes explicitly using these exact tags, each on its own line at the end of your message:',
+        '- [SKILL DC: 12] — end every reply with this tag, rating how dangerous or demanding the current scene is for the player right now. This single number is the target for whatever skill roll the player chooses to make next. Raise it as tension and danger rise, lower it as things calm down.',
+        '  Scene guide: 5 = calm/safe, 10 = mild tension, 12 = risky, 15 = dangerous, 20 = very dangerous, 25 = desperate.',
+        '  Rate only the scene. Never tie the number to a specific action, goal, or approach — what the player attempts, and how, is entirely their choice.',
         '- [ITEM GAINED: item name x2] — whenever the player acquires items (quantity optional).',
         '- [ITEM LOST: item name] — whenever the player loses, uses up, gives away, or breaks an item.',
         '- [SPELL LEARNED: spell name] — when the player learns a new spell.',
         '- [SPELL FORGOTTEN: spell name] — when the player loses access to a spell.',
         '- [HP: -5] — when the player takes damage. Use [HP: +3] for healing, [HP: 25] to set an exact value, and [HP MAX: 40] to change their maximum HP.',
         '- [LEVEL UP] — when the player gains a level (use [LEVEL UP: 2] for multiple levels).',
-        'Always declare a [SKILL DC] tag when you present a meaningful challenge or obstacle, and keep difficulties consistent with the fiction. Only emit tags for changes that actually happen in the story — never for hypothetical ones.',
+        'Keep the [SKILL DC] rating consistent with the fiction and update it in every reply. Only emit the other tags for changes that actually happen in the story — never for hypothetical ones.',
         '---END GAME MASTER INSTRUCTIONS---'
     ].join('\n');
 }
