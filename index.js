@@ -832,7 +832,7 @@ function buildGmInstructions() {
     return [
         '---GAME MASTER INSTRUCTIONS---',
         'You are responsible for setting challenge difficulty and managing the player\'s inventory, spells, and level. Declare all game-state changes explicitly using these exact tags, each on its own line at the end of your message:',
-        '- [SKILL DC: 15] — declare the difficulty of a challenge the player is facing before they attempt it. Use per-stat DCs when different approaches vary in difficulty: [SKILL DC: STR 18, DEX 12]. Optionally name the challenge: [SKILL DC: 15 | Rusty Lock].',
+        '- [SKILL DC: 15] — declare the difficulty of a challenge the player is facing before they attempt it. Use per-stat DCs when different approaches vary in difficulty: [SKILL DC: STR 18, DEX 12]. Optionally name the challenge: [SKILL DC: 15 | Rusty Lock]. The label names the obstacle or circumstance (e.g. "Rusty Lock", "Vale\'s Suspicion") — never a suggested action or approach. What to attempt is always the player\'s choice.',
         '  Difficulty guide: 5 = trivial, 10 = easy, 12 = medium, 15 = hard, 20 = very hard, 25 = nearly impossible.',
         '- [ITEM GAINED: item name x2] — whenever the player acquires items (quantity optional).',
         '- [ITEM LOST: item name] — whenever the player loses, uses up, gives away, or breaks an item.',

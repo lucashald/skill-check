@@ -47,7 +47,7 @@ When "Inject GM instructions" is enabled (default), the extension teaches the AI
 |-----|---------|
 | `[SKILL DC: 15]` | The challenge ahead has difficulty 15 for any stat |
 | `[SKILL DC: STR 18, DEX 12]` | Per-stat difficulties (breaking the door vs. picking the lock) |
-| `[SKILL DC: 15 \| Rusty Lock]` | Optional challenge name after a pipe (shown in the roll toast) |
+| `[SKILL DC: 15 \| Rusty Lock]` | Optional challenge name after a pipe (shown in the roll toast). Labels name the obstacle, never a suggested action — the AI is instructed that what to attempt is always the player's choice |
 | `[ITEM GAINED: health potion x2]` | Add 2 health potions to inventory (quantity optional) |
 | `[ITEM LOST: rope]` | Remove rope from inventory (`ITEM USED` / `ITEM REMOVED` also work) |
 | `[SPELL LEARNED: fireball]` | Add a spell to your spell list |
