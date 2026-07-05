@@ -8,12 +8,14 @@ Skill Check adds a comprehensive RPG system to SillyTavern:
 
 ### Core Features
 
-1. **Manual Skill Checks**: Click a stat button to roll 1d20 + modifier against a difficulty
-2. **AI-Declared Difficulty**: The AI acts as Game Master and explicitly sets the DC for challenges it presents using `[SKILL DC: 15]` tags
-3. **AI-Managed Inventory**: The AI declares item changes with `[ITEM GAINED: ...]` / `[ITEM LOST: ...]` tags and the extension tracks them
-4. **Explicit Level-Ups**: The AI declares level-ups with a `[LEVEL UP]` tag; you confirm before it's applied
-5. **Character Sheet Injection**: Your character stats are automatically included in AI context
-6. **Smart Roll Control**: Choose whether rolls auto-send or let you review them first
+1. **Manual Skill Checks**: Click a stat button to roll 1d20 + modifier against a difficulty. Shift-click for **advantage** (2d20 take highest), Ctrl-click for **disadvantage** (take lowest)
+2. **AI-Declared Difficulty**: The AI acts as Game Master and explicitly sets the DC for challenges it presents using `[SKILL DC: 15]` tags — the active DC is shown as a **badge** next to the stat buttons *before* you roll, and buttons with a declared DC glow
+3. **AI-Managed Inventory, Spells & HP**: The AI declares changes with `[ITEM GAINED: ...]`, `[SPELL LEARNED: ...]`, `[HP: -5]` tags. Every change pops a **toast with an Undo button**, and changes from swiped-away or edited messages are automatically reverted
+4. **Explicit Level-Ups**: The AI declares level-ups with a `[LEVEL UP]` tag; you confirm before it's applied. Missed the toast? The offer stays as a badge on the character sheet button
+5. **Character Sheet Injection**: Your stats, HP, inventory, and spells are automatically included in AI context
+6. **Clean Chat**: Protocol tags are cosmetically hidden from rendered messages (toggleable)
+7. **Roll History**: The last 10 rolls (with dice, DC, and outcome) are listed in the character sheet popup
+8. **Customizable Outcomes**: Edit the per-tier instructions the AI receives ("FAILED BADLY. Narrate…") to fit your genre
 
 ### Basic Workflow
 
@@ -50,6 +52,8 @@ When "Inject GM instructions" is enabled (default), the extension teaches the AI
 | `[ITEM LOST: rope]` | Remove rope from inventory (`ITEM USED` / `ITEM REMOVED` also work) |
 | `[SPELL LEARNED: fireball]` | Add a spell to your spell list |
 | `[SPELL FORGOTTEN: fireball]` | Remove a spell from your spell list |
+| `[HP: -5]` | Take 5 damage. `[HP: +3]` heals, `[HP: 25]` sets an exact value |
+| `[HP MAX: 40]` | Change maximum HP |
 | `[LEVEL UP]` | Gain a level (`[LEVEL UP: 2]` for multiple); shows a confirmation toast |
 
 Tags are case-insensitive. `[DC: 15]` works as shorthand for `[SKILL DC: 15]`, and `[ITEM ADDED: ...]` / `[SPELL GAINED: ...]` are accepted as aliases.
@@ -60,7 +64,9 @@ Tags are case-insensitive. `[DC: 15]` works as shorthand for `[SKILL DC: 15]`, a
 2. **AI-declared DC** — the most recent `[SKILL DC]` tag in the last N messages (N = "context messages" setting, default 5). Per-stat DCs are matched to the stat you clicked; a flat DC applies to any stat.
 3. **Default difficulty** — your configured fallback DC (default 12)
 
-You can also type a `[SKILL DC: X]` tag yourself in chat if you want to force a specific difficulty narratively.
+The currently active DC is always visible as a badge next to the stat buttons, so you know the difficulty *before* you roll. When the AI declares per-stat DCs, the matching stat buttons light up. You can also type a `[SKILL DC: X]` tag yourself in chat if you want to force a specific difficulty narratively.
+
+**Trust but verify**: every inventory/spell/HP change the AI declares is shown in a "Character updated" toast with an **Undo** button. If you swipe to a different AI response or edit a message, the changes from the discarded version are automatically rolled back before the new version is applied.
 
 ## Installation
 
@@ -102,14 +108,16 @@ The stat buttons should appear near your message input area.
 
 2. **Play**:
    - The AI presents a challenge and declares its difficulty: *"The vault door is sealed with a masterwork lock. `[SKILL DC: DEX 17 | Masterwork Lock]`"*
+   - The badge next to the stat buttons shows "Masterwork Lock — DEX 17" and the DEX button glows
    - Type your action: "I carefully work my picks into the mechanism"
-   - Click the **DEX** button
+   - Click the **DEX** button (or Shift-click if you have advantage)
    - The extension rolls 1d20 + your DEX modifier vs DC 17
 
 3. **See what happened**:
    - A toast shows you the roll: "DEX Check vs Masterwork Lock (DC 17): 14 + 4 = 18 → SUCCESS"
    - The AI receives: `[System: The user attempted an action against Masterwork Lock using DEX. They SUCCEEDED. Narrate the user achieving their goal.]`
    - The AI narrates accordingly — and if there's loot, it declares it: *"The lock clicks open. Inside you find a coiled silver rope. `[ITEM GAINED: silver rope]`"*
+   - A "Character updated" toast confirms *+ silver rope* (with Undo, in case the AI got creative)
 
 ### Manual Difficulty Control
 
@@ -144,13 +152,14 @@ The AI is instructed: *"SUCCEEDED EXCEPTIONALLY. Narrate an impressive, skillful
 
 ## Settings
 
-Open the character sheet popup (scroll icon) for the main settings:
+The character sheet popup (scroll icon) is the single source of truth for all settings. The Extensions panel (**Extensions** > **Skill Check Settings**) only has the master enable toggle and a shortcut to open the popup.
 
 ### Difficulty
 
 - **Use AI-declared difficulty** (default: ON): Read `[SKILL DC]` tags from recent messages. When off, rolls always use the default DC (or the one-shot override).
 - **Inject GM instructions** (default: ON): Injects the tag protocol instructions into context so the AI knows how to declare DCs and manage inventory. Turn this off if you'd rather put the instructions in your own system prompt or character card.
-- **Inject character sheet** (default: ON): Includes your stats, inventory, and spells in AI context.
+- **Inject character sheet** (default: ON): Includes your stats, HP, inventory, and spells in AI context.
+- **Hide tags in chat display** (default: ON): Cosmetically strips protocol tags from rendered messages. The underlying message text is untouched (the extension still parses it); reload the chat to restore already-hidden tags after turning this off.
 - **Append roll without auto-sending** (default: ON): Lets you review the roll outcome before sending.
 - **Next roll DC override**: One-shot manual DC (0 = off).
 
@@ -160,15 +169,22 @@ The fallback target number (1-30, default 12) used when the AI hasn't declared a
 
 ### Stats
 
-- **Level** with +/- controls; level-up confirmations grant points to spend
+- **Level** with +/- controls; level-up confirmations grant points to spend. Unapplied level-up offers appear here with an Apply button.
+- **HP**: current / max, editable manually and updated by `[HP: ...]` tags
 - **D&D style toggle**: When on, modifier = (stat − 10) / 2. When off, the stat value IS the modifier.
 - Six renamable stats (click a stat name to edit it — useful for non-fantasy settings)
 
 ### Inventory & Spells
 
-Both lists are managed by the AI via tags, but you can always add, edit, or delete entries manually here.
+Both lists are managed by the AI via tags, but you can always add, edit, or delete entries manually here. "Add Item" / "Add Spell" create an inline row you can type into directly.
 
-The Extensions panel (**Extensions** > **Skill Check Settings**) has the master enable toggle, quick stat inputs, and the default difficulty.
+### Recent Rolls
+
+The last 10 rolls with dice, modifier, DC, challenge, and outcome — handy when you want to cite "I rolled a nat 20 two turns ago."
+
+### Outcome Instructions
+
+The four per-tier instructions sent to the AI (critical failure / failure / success / strong success) are editable textareas. Tune them to your genre — a horror campaign's failures can hit harder than a slice-of-life comedy's. "Reset outcome texts" restores the defaults.
 
 ## Technical Details
 
@@ -180,7 +196,7 @@ When you make a skill check, the extension appends this to your message:
 [System: The user attempted an action against {challenge} using {STAT}. They {OUTCOME}.]
 ```
 
-Only the outcome is included, NOT the numerical roll. This prevents the AI from reinterpreting the numbers.
+Only the outcome is included, NOT the numerical roll. This prevents the AI from reinterpreting the numbers. The "against {challenge}" clause is only added when the AI gave the challenge an actual name (via `[SKILL DC: 15 | Rusty Lock]`), and advantage/disadvantage is mentioned ("with advantage") so the AI can color the narration.
 
 ### Context Injection Format
 
@@ -189,6 +205,7 @@ When enabled, the extension injects (after character definitions):
 ```
 ---CHARACTER SHEET---
 Level: {level}
+HP: {current}/{max}
 Stats: STR +3, DEX +2, ...
 Inventory: rope, health potion (×2)
 Spells: fireball
@@ -201,24 +218,21 @@ Spells: fireball
 
 ### Message Flow
 
-**On AI message received**:
-1. The newest AI message is processed exactly once (tracked by message index)
-2. `[ITEM GAINED/LOST]`, `[SPELL LEARNED/FORGOTTEN]` tags are applied to your sheet immediately
-3. `[LEVEL UP]` tags show a confirmation toast (Apply grants the level + a stat point to spend)
+**On AI message received** (including swipes and edits):
+1. The newest AI message is processed exactly once *per version* — a content hash detects swipes/edits, reverts the changes the discarded version made, and applies the new version's tags
+2. `[ITEM ...]`, `[SPELL ...]`, and `[HP ...]` tags are applied to your sheet immediately, and a "Character updated" toast with Undo summarizes them
+3. `[LEVEL UP]` tags show a confirmation toast (Apply grants the level + a stat point to spend); unresolved offers stay as a badge on the scroll button
+4. The DC badge next to the stat buttons refreshes
 
 **On stat button click**:
 1. Resolve difficulty: one-shot override → most recent `[SKILL DC]` tag → default DC
-2. Roll 1d20 + stat modifier, determine outcome tier
-3. Show toast with the full roll math (you see the numbers; the AI doesn't)
+2. Roll 1d20 + stat modifier (2d20 for Shift/Ctrl-click advantage/disadvantage), determine outcome tier
+3. Show toast with the full roll math (you see the numbers; the AI doesn't) and record it in the roll history
 4. Append the outcome instruction to your message; auto-send if configured
 
-### Hiding Tags in Chat (Optional)
+### Tag Hiding
 
-The tags appear in the AI's visible messages. If you'd like to hide them cosmetically, add a SillyTavern regex script (**Extensions** > **Regex**):
-
-- Find: `\[(SKILL DC|DC|ITEM (GAINED|ADDED|LOST|REMOVED|USED)|SPELL (LEARNED|GAINED|FORGOTTEN|LOST|REMOVED)|LEVEL ?UP)[^\]]*\]`
-- Replace with: (empty)
-- Affects: **Display only** (important — the extension needs the tags present in the actual message text)
+Tags are hidden from rendered chat messages by default ("Hide tags in chat display" toggle). This is purely cosmetic — the underlying message text keeps the tags so parsing, regeneration, and context all work normally. Undo isn't retroactive: turning the toggle off restores tags on newly rendered messages; reload the chat to re-render older ones.
 
 ### Compatibility
 
@@ -278,8 +292,10 @@ console.log('Send textarea:', $('#send_textarea').length);
 
 1. **Keep both injections on**: The GM instructions make the AI declare state; the character sheet lets it narrate consistently with your stats and gear.
 2. **Review rolls before sending**: Keep "Append roll without auto-sending" enabled so you can verify the outcome first.
-3. **Nudge lazy models**: If a model stops emitting tags mid-session, a one-line author's note ("Remember to declare [SKILL DC] tags for challenges") usually fixes it.
-4. **For dungeon masters**: Add to your system prompt:
+3. **Watch the badge**: If no DC badge is showing, the AI hasn't declared a difficulty — your roll will use the default DC. Glance before you click.
+4. **Use advantage deliberately**: Shift-click when the fiction favors you (high ground, the right tool), Ctrl-click when it doesn't. Mentioning it in your action text helps the AI narrate it.
+5. **Nudge lazy models**: If a model stops emitting tags mid-session, a one-line author's note ("Remember to declare [SKILL DC] tags for challenges") usually fixes it.
+6. **For dungeon masters**: Add to your system prompt:
    ```
    Follow all [System:] instructions exactly. When skill checks fail, narrate realistic
    consequences. When they critically fail, create dramatic complications. When they
@@ -304,15 +320,18 @@ skill-check/
 
 - `findLatestDcTag(messages)` — finds the most recent `[SKILL DC]` tag in recent messages
 - `getActiveDifficulty(stat)` — resolves the DC (override → AI-declared → default)
-- `processIncomingMessage()` — processes each new AI message once for state tags
-- `processMessageTags(text)` — applies item/spell/level tags to the character sheet
-- `performSkillCheck(stat)` — main entry point when a stat button is clicked
-- `determineOutcome(naturalRoll, total, difficulty)` — calculates the outcome tier
+- `updateDcBadge()` — refreshes the DC badge and stat-button highlighting
+- `processIncomingMessage()` — processes each AI message version once (content hash detects swipes/edits and triggers revert + reprocess)
+- `processMessageTags(text)` — applies item/spell/HP/level tags; returns the change list
+- `revertTagChanges(changes)` / `showTagChangeToast(changes)` — undo support and the change toast
+- `applyTagHiding()` — cosmetically strips tags from rendered messages
+- `performSkillCheck(stat, rollMode)` — main entry point when a stat button is clicked (rollMode: normal/advantage/disadvantage)
+- `determineOutcome(naturalRoll, total, difficulty)` — calculates the outcome tier using the user-editable texts
 - `buildGmInstructions()` / `buildCharacterSheetPrompt()` — the injected context blocks
 
 **Data Flow**:
-1. AI message received → parse tags → update inventory/spells/level → refresh injected sheet
-2. User types message + clicks stat button → resolve DC, roll dice, inject outcome
+1. AI message received (or swiped/edited) → revert stale changes → parse tags → update inventory/spells/HP/level → show change toast → refresh injected sheet, DC badge, and tag hiding
+2. User types message + clicks stat button → resolve DC, roll dice, record history, inject outcome
 3. Settings changed → auto-save to `extension_settings['skill-check']`
 
 ## Contributing
