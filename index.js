@@ -1,5 +1,6 @@
 import { extension_settings } from "../../../extensions.js";
 import { getContext } from "../../../extensions.js";
+import { gmscreenRole } from "./gmscreen.js";
 
 // Wrapper to get saveSettingsDebounced from context API
 function saveSettingsDebounced() {
@@ -13,6 +14,24 @@ function saveSettingsDebounced() {
 
 const extensionName = "skill-check";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+
+// Which group member is currently drafting a reply (set on GROUP_MEMBER_DRAFTED,
+// cleared when the group turn ends). Null in solo chats.
+let lastDraftedCharacterId = null;
+
+// The card the current injection is for: the drafting member in a group, or
+// the active character in a solo chat. Null if it cannot be determined.
+function resolveInjectionTargetCharacter() {
+    const context = getContext();
+    if (!context) return null;
+    if (context.groupId) {
+        return Number.isInteger(lastDraftedCharacterId)
+            ? (context.characters?.[lastDraftedCharacterId] || null)
+            : null;
+    }
+    const id = Number(context.characterId);
+    return Number.isInteger(id) ? (context.characters?.[id] || null) : null;
+}
 
 // Default outcome instructions per tier (editable in the character sheet popup)
 const defaultOutcomeTexts = {
@@ -913,6 +932,14 @@ function updateCharacterSheetPrompt() {
     // Get setExtensionPrompt from the context API
     const context = getContext();
     if (context && typeof context.setExtensionPrompt === 'function') {
+        // Suppress all Skill Check injection for cards explicitly marked as
+        // non-GM NPCs. "gm"/unset fall through to normal injection.
+        if (gmscreenRole(resolveInjectionTargetCharacter()) === 'npc') {
+            context.setExtensionPrompt(extensionName, '', 2, 0);
+            console.log('[Skill Check] Suppressed injection for non-GM NPC card');
+            return;
+        }
+
         const promptText = buildExtensionPrompt();
 
         // Register the prompt with identifier and position
