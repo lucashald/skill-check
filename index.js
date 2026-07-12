@@ -987,6 +987,23 @@ function setupMessageTagProcessing() {
                 console.warn('[Skill Check] Could not hook swipe/edit events:', e);
             }
 
+            // Per-member injection gating: when a group member is drafted, the
+            // relevant card changes, so recompute the injection for that card
+            // before its generation runs.
+            try {
+                source.on(types?.GROUP_MEMBER_DRAFTED || 'group_member_drafted', (charId) => {
+                    const id = Number(charId);
+                    lastDraftedCharacterId = Number.isInteger(id) ? id : null;
+                    updateCharacterSheetPrompt();
+                });
+                source.on(types?.GROUP_WRAPPER_FINISHED || 'group_wrapper_finished', () => {
+                    lastDraftedCharacterId = null;
+                    updateCharacterSheetPrompt();
+                });
+            } catch (e) {
+                console.warn('[Skill Check] Could not hook group draft events:', e);
+            }
+
             console.log('[Skill Check] ✓ Tag processing hooked into message events');
             return;
         } catch (e) {
