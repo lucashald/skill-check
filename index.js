@@ -852,7 +852,7 @@ function buildGmInstructions() {
         '---GAME MASTER INSTRUCTIONS---',
         'You are responsible for rating scene difficulty and managing the player\'s inventory, spells, and level. Declare all game-state changes explicitly using these exact tags, each on its own line at the end of your message:',
         '- [SKILL DC: 12] — end every reply with this tag, rating how dangerous or demanding the current scene is for the player right now. This single number is the target for whatever skill roll the player chooses to make next. Raise it as tension and danger rise, lower it as things calm down.',
-        '  Scene guide: 5 = calm/safe, 10 = mild tension, 12 = risky, 15 = dangerous, 20 = very dangerous, 25 = desperate.',
+        '  Scene guide — treat this as a continuous 1–25 scale, not a fixed menu. Use whatever whole number best fits the moment; in-between values such as 8, 11, or 17 are fully valid, not only the anchors. Rough anchors: ~5 calm/safe, ~10 mild tension, ~12 risky, ~15 dangerous, ~20 very dangerous, ~25 desperate.',
         '  Rate only the scene. Never tie the number to a specific action, goal, or approach — what the player attempts, and how, is entirely their choice.',
         '- [ITEM GAINED: item name x2] — whenever the player acquires items (quantity optional).',
         '- [ITEM LOST: item name] — whenever the player loses, uses up, gives away, or breaks an item.',
@@ -861,6 +861,7 @@ function buildGmInstructions() {
         '- [HP: -5] — when the player takes damage. Use [HP: +3] for healing, [HP: 25] to set an exact value, and [HP MAX: 40] to change their maximum HP.',
         '- [LEVEL UP] — when the player gains a level (use [LEVEL UP: 2] for multiple levels).',
         'Keep the [SKILL DC] rating consistent with the fiction and update it in every reply. Only emit the other tags for changes that actually happen in the story — never for hypothetical ones.',
+        'Separately, wrap hidden scene facts in square brackets — things you as narrator know that the characters don\'t: [the badge is a forgery], [a second guard waits in the stairwell]. Use this for the world and background only; named characters and the player keep their own secrets in their own voice.',
         '---END GAME MASTER INSTRUCTIONS---'
     ].join('\n');
 }
