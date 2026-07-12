@@ -358,3 +358,20 @@ Created for the SillyTavern community.
 ---
 
 **Enjoy rolling for your actions!** May your natural 20s be frequent and your critical failures be narratively interesting.
+
+## gmscreen shared card contract
+
+Skill Check is part of the **gmscreen** suite. Cards may carry a neutral role flag:
+
+- Field: `data.extensions.gmscreen_role`
+- Values: `"gm"`, `"npc"`, or absent (unset)
+- `"npc"` → Skill Check injects neither the character sheet nor the GM
+  instructions for that card's replies (so it won't emit `[SKILL DC]` /
+  `[ITEM …]` tags or read the player's sheet).
+- `"gm"` or absent → normal injection (unchanged behavior).
+
+Set the flag from the **Card role (gmscreen)** control in the character sheet
+popup (solo chats). The same field is read by the NPC POV Memory extension,
+which additionally strips existing bracket tags from `"npc"` cards' transcripts.
+Each extension works standalone; they share only this one field. The flag is
+never written automatically.
