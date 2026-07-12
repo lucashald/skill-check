@@ -1420,6 +1420,19 @@ function openCharacterSheet(scrollPosition = 0) {
                     </div>
 
                     <div class="skill-check-popup-section">
+                        <h4>Card role (gmscreen)</h4>
+                        <small>Marking a card as NPC hides your character sheet and GM instructions from that card's replies. GM/Default cards are unaffected.</small>
+                        <div id="skill-check-role-solo">
+                            <select id="skill-check-gmscreen-role" class="text_pole">
+                                <option value="">Default (unset)</option>
+                                <option value="gm">GM / narrator</option>
+                                <option value="npc">NPC</option>
+                            </select>
+                        </div>
+                        <small id="skill-check-role-group-hint" style="display:none;">Open this character's own solo chat to set its role, or use a gmscreen extension that provides a per-member picker. The flag is shared.</small>
+                    </div>
+
+                    <div class="skill-check-popup-section">
                         <h4>Default Difficulty (DC)</h4>
                         <small>Used when the AI hasn't declared a DC</small>
                         <div class="skill-check-difficulty-row">
@@ -1592,6 +1605,34 @@ function openCharacterSheet(scrollPosition = 0) {
     if (scrollPosition > 0) {
         popup.find('.skill-check-popup').scrollTop(scrollPosition);
     }
+
+    (function initGmscreenRole() {
+        const context = getContext();
+        const inGroup = Boolean(context.groupId);
+        const id = Number(context.characterId);
+        const character = !inGroup && Number.isInteger(id) ? context.characters?.[id] : null;
+
+        $('#skill-check-role-solo').toggle(!inGroup && !!character);
+        $('#skill-check-role-group-hint').toggle(inGroup);
+
+        if (character) {
+            const raw = character.data?.extensions?.gmscreen_role;
+            $('#skill-check-gmscreen-role').val(raw === 'gm' || raw === 'npc' ? raw : '');
+        }
+
+        $('#skill-check-gmscreen-role').off('change').on('change', async function () {
+            const value = String($(this).val() || '');
+            const roleValue = value === 'gm' || value === 'npc' ? value : undefined;
+            const ctx = getContext();
+            const chid = Number(ctx.characterId);
+            if (!Number.isInteger(chid) || !ctx.characters?.[chid]) {
+                return;
+            }
+            await ctx.writeExtensionField(chid, 'gmscreen_role', roleValue);
+            updateCharacterSheetPrompt();
+            console.log('[Skill Check] gmscreen_role set to', roleValue ?? '(unset)');
+        });
+    })();
 
     // --- In-place refresh helpers ---
 
